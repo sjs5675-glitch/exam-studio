@@ -1,0 +1,15 @@
+{
+  "id": "R-03-basic",
+  "rule_ids": ["R-03"],
+  "description": "bullet 기호 → cdot: 중간점(·) 치환",
+  "input": {
+    "parts": [
+      {"eq": "vec a · vec b = |vec a| |vec b| cos theta"}
+    ]
+  },
+  "expected": {
+    "parts": [
+      {"eq": "vec a cdot vec b = |vec a| |vec b| cos theta"}
+    ]
+  }
+}

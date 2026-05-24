@@ -1,0 +1,75 @@
+{
+  "id": "OP-q1-parity",
+  "rule_ids": [
+    "R-10"
+  ],
+  "description": "운영 데이터 q1 — Python normalize_parts 출력 스냅샷 (cross-language parity)",
+  "input": {
+    "parts": [
+      {
+        "eq": "int f(x)dx = x^2 - 6x + 8"
+      },
+      {
+        "t": "의 양변을 "
+      },
+      {
+        "eq": "x"
+      },
+      {
+        "t": "에 대해 미분하면"
+      },
+      {
+        "br": true
+      },
+      {
+        "eq": "f(x) = 2x - 6"
+      },
+      {
+        "br": true
+      },
+      {
+        "t": "따라서 "
+      },
+      {
+        "eq": "f(10) = 2 times 10 - 6 = 14"
+      }
+    ]
+  },
+  "expected": {
+    "parts": [
+      {
+        "eq": "int f(x)dx = x^2 - 6x + 8"
+      },
+      {
+        "t": "의 양변을 "
+      },
+      {
+        "eq": "x"
+      },
+      {
+        "t": "에 대해 미분하면"
+      },
+      {
+        "br": true
+      },
+      {
+        "eq": "f(x) = 2x - 6"
+      },
+      {
+        "br": true
+      },
+      {
+        "t": "따라서 "
+      },
+      {
+        "eq": "f(10) = 2 times 10 - 6"
+      },
+      {
+        "t": " "
+      },
+      {
+        "eq": "= 14"
+      }
+    ]
+  }
+}

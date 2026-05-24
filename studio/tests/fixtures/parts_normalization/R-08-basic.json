@@ -1,0 +1,15 @@
+{
+  "id": "R-08-basic",
+  "rule_ids": ["R-08"],
+  "description": "조합 nCr 패턴 정규화",
+  "input": {
+    "parts": [
+      {"eq": "_5C_3"}
+    ]
+  },
+  "expected": {
+    "parts": [
+      {"eq": "{it`_5`}{rm C}_{it 3}"}
+    ]
+  }
+}

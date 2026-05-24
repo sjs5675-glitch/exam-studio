@@ -1,0 +1,23 @@
+<hsp:secPr>
+  <hp:styles>
+    <hp:style name="바탕글" styleId="Normal" type="para">
+      <hp:paraShape lineSpacing="160" />
+    </hp:style>
+  </hp:styles>
+  <hp:p>
+    <hp:run>
+      <hp:t>문제 1. 다음을 구하시오.</hp:t>
+    </hp:run>
+  </hp:p>
+  <hp:endNotes>
+    <hp:endNote suffixChar="46" number="1">
+      <hp:autoNum numType="digit" />
+      <hp:p>
+        <hp:run>
+          <hp:charPr bold="true" />
+          <hp:t>[정답] ① (굵은 글씨 — 금지)</hp:t>
+        </hp:run>
+      </hp:p>
+    </hp:endNote>
+  </hp:endNotes>
+</hsp:secPr>

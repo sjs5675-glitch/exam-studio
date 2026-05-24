@@ -1,0 +1,15 @@
+{
+  "id": "R-02-already-attached",
+  "rule_ids": ["R-02"],
+  "description": "DEG 이미 붙여쓰기된 경우 — idempotent",
+  "input": {
+    "parts": [
+      {"eq": "30DEG + 60DEG = 90DEG"}
+    ]
+  },
+  "expected": {
+    "parts": [
+      {"eq": "30DEG + 60DEG = 90DEG"}
+    ]
+  }
+}

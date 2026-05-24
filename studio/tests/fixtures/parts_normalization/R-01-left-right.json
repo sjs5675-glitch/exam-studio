@@ -1,0 +1,16 @@
+{
+  "id": "R-01-left-right",
+  "rule_ids": ["R-01"],
+  "description": "depth-aware: LEFT( ... RIGHT) 내부 = 는 split 대상 아님",
+  "input": {
+    "parts": [
+      {"eq": "k = LEFT ( a = 1 RIGHT ) + m"}
+    ]
+  },
+  "expected": {
+    "parts": [
+      {"eq": "k = LEFT ( a = 1 RIGHT ) + m"}
+    ]
+  },
+  "notes": "LEFT/RIGHT 블록 안의 = 는 top-level이 아니므로 split 안 함. top-level = 1개."
+}

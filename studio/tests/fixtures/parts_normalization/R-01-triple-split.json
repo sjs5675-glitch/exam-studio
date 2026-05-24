@@ -1,0 +1,19 @@
+{
+  "id": "R-01-triple-split",
+  "rule_ids": ["R-01"],
+  "description": "통수식 split: top-level = 3개 (3분할)",
+  "input": {
+    "parts": [
+      {"eq": "a = b = c = d"}
+    ]
+  },
+  "expected": {
+    "parts": [
+      {"eq": "a = b"},
+      {"t": " "},
+      {"eq": "= c"},
+      {"t": " "},
+      {"eq": "= d"}
+    ]
+  }
+}

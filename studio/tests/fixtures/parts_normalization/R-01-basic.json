@@ -1,0 +1,19 @@
+{
+  "id": "R-01-basic",
+  "rule_ids": ["R-01"],
+  "description": "기본 통수식 split: top-level = 2개",
+  "input": {
+    "parts": [
+      {"t": "따라서 "},
+      {"eq": "f(x) = x^2 + 2x = (x+1)^2 - 1"}
+    ]
+  },
+  "expected": {
+    "parts": [
+      {"t": "따라서 "},
+      {"eq": "f(x) = x^2 + 2x"},
+      {"t": " "},
+      {"eq": "= (x+1)^2 - 1"}
+    ]
+  }
+}

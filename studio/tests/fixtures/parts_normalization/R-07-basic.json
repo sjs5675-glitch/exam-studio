@@ -1,0 +1,16 @@
+{
+  "id": "R-07-basic",
+  "rule_ids": ["R-07"],
+  "description": "leading _ 로 시작하는 eq → {} LSUB {token} 변환 (2-pass: R-08 이후 적용)",
+  "input": {
+    "parts": [
+      {"eq": "_n"}
+    ]
+  },
+  "expected": {
+    "parts": [
+      {"eq": "{} LSUB {n}"}
+    ]
+  },
+  "notes": "R-08 이후 잔존 leading _ 는 LSUB 변환. 2-pass 알고리즘: R-08이 먼저 nCr/nPr/nHr 처리, R-07이 나머지 leading _ 처리."
+}

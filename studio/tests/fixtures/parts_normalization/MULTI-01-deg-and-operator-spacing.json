@@ -1,0 +1,15 @@
+{
+  "id": "MULTI-01",
+  "rule_ids": ["R-02", "R-10"],
+  "description": "복합: DEG 붙여쓰기 + 연산자 공백 동시 적용",
+  "input": {
+    "parts": [
+      {"eq": "sin(90 DEG)+cos(0 DEG)=1"}
+    ]
+  },
+  "expected": {
+    "parts": [
+      {"eq": "sin(90DEG) + cos(0DEG) = 1"}
+    ]
+  }
+}

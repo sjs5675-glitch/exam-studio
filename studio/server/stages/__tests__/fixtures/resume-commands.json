@@ -1,0 +1,80 @@
+[
+  {
+    "id": "resume-q3-extractor",
+    "input": "resume --q=3 --from=extractor",
+    "expected": { "type": "resume", "questions": [3], "fromStage": "extractor" },
+    "description": "지정 resume — 3번 extractor부터 재실행"
+  },
+  {
+    "id": "resume-q3-7-extractor",
+    "input": "resume --q=3,7 --from=extractor",
+    "expected": { "type": "resume", "questions": [3, 7], "fromStage": "extractor" },
+    "description": "지정 resume (복수) — 3,7번 extractor 병렬 재실행"
+  },
+  {
+    "id": "resume-from-review_extract",
+    "input": "resume --from=review_extract",
+    "expected": { "type": "resume", "fromStage": "review_extract" },
+    "description": "추출 검증 resume — 추출 유지 + 검증 화면부터 (solver 미실행 시)"
+  },
+  {
+    "id": "resume-q3-7-solver",
+    "input": "resume --q=3,7 --from=solver",
+    "expected": { "type": "resume", "questions": [3, 7], "fromStage": "solver" },
+    "description": "지정 resume — 3,7번 solver부터 재실행"
+  },
+  {
+    "id": "resume-from-builder",
+    "input": "resume --from=builder",
+    "expected": { "type": "resume", "fromStage": "builder" },
+    "description": "Phase 2 resume — builder부터 재실행"
+  },
+  {
+    "id": "resume-q3-cleaned",
+    "input": "resume --q=3 --from=cleaned",
+    "expected": { "type": "resume", "questions": [3], "fromStage": "cleaned" },
+    "description": "지정 resume — 3번 이미지 정리부터 재실행"
+  },
+  {
+    "id": "resume-q3-image_replace",
+    "input": "resume --q=3 --from=image_replace",
+    "expected": { "type": "resume", "questions": [3], "fromStage": "image_replace" },
+    "description": "이미지 교체 resume — 3번 원본 이미지 교체 후 정리→추출 자동 재실행"
+  },
+  {
+    "id": "resume-from-extractor",
+    "input": "resume --from=extractor",
+    "expected": { "type": "resume", "fromStage": "extractor" },
+    "description": "전체 resume — 모든 문제 extractor부터 재실행 → [EXTRACTION_REVIEW] 출력"
+  },
+  {
+    "id": "resume-from-solver",
+    "input": "resume --from=solver",
+    "expected": { "type": "resume", "fromStage": "solver" },
+    "description": "전체 resume — 모든 문제 solver부터 재실행"
+  },
+  {
+    "id": "resume-from-verifier",
+    "input": "resume --from=verifier",
+    "expected": { "type": "resume", "fromStage": "verifier" },
+    "description": "전체 resume — 모든 문제 verifier부터 재실행"
+  },
+  {
+    "id": "resume-from-figure",
+    "input": "resume --from=figure",
+    "expected": { "type": "resume", "fromStage": "figure" },
+    "description": "Phase 2 resume — figure부터 재실행"
+  },
+  {
+    "id": "resume-q3-figure",
+    "input": "resume --q=3 --from=figure",
+    "expected": { "type": "resume", "questions": [3], "fromStage": "figure" },
+    "description": "지정 resume — 3번 그림만 재처리"
+  },
+  {
+    "id": "resume-from-confirm",
+    "input": "resume --from=confirm",
+    "expected": { "type": "resume", "fromStage": "confirm" },
+    "description": "confirm — figure 결과 확인 완료 → builder 진행"
+  }
+]

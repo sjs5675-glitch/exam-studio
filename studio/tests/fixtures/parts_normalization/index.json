@@ -1,0 +1,182 @@
+[
+  {
+    "file": "R-01-basic.json",
+    "rule_ids": ["R-01"],
+    "description": "기본 통수식 split: top-level = 2개"
+  },
+  {
+    "file": "R-01-nested-braces.json",
+    "rule_ids": ["R-01"],
+    "description": "depth-aware: 중괄호 내부 = 는 split 대상 아님"
+  },
+  {
+    "file": "R-01-left-right.json",
+    "rule_ids": ["R-01"],
+    "description": "depth-aware: LEFT( ... RIGHT) 내부 = 는 split 대상 아님"
+  },
+  {
+    "file": "R-01-triple-split.json",
+    "rule_ids": ["R-01"],
+    "description": "통수식 split: top-level = 3개 (3분할)"
+  },
+  {
+    "file": "R-02-basic.json",
+    "rule_ids": ["R-02"],
+    "description": "DEG 붙여쓰기: 숫자와 DEG 사이 공백 제거"
+  },
+  {
+    "file": "R-02-already-attached.json",
+    "rule_ids": ["R-02"],
+    "description": "DEG 이미 붙여쓰기된 경우 — idempotent"
+  },
+  {
+    "file": "R-03-basic.json",
+    "rule_ids": ["R-03"],
+    "description": "bullet 기호 → cdot: 중간점(·) 치환"
+  },
+  {
+    "file": "R-03-multiple-bullets.json",
+    "rule_ids": ["R-03"],
+    "description": "다양한 bullet 기호 동시 치환 (·, •, ⋅)"
+  },
+  {
+    "file": "R-04-basic.json",
+    "rule_ids": ["R-04"],
+    "description": "cdots 역따옴표 감싸기"
+  },
+  {
+    "file": "R-04-already-wrapped.json",
+    "rule_ids": ["R-04"],
+    "description": "cdots 이미 역따옴표로 감싸진 경우 — idempotent"
+  },
+  {
+    "file": "R-05-basic.json",
+    "rule_ids": ["R-05"],
+    "description": "수식 내 쉼표 뒤 ~ 자동 삽입"
+  },
+  {
+    "file": "R-05-already-tilde.json",
+    "rule_ids": ["R-05"],
+    "description": "쉼표 뒤 ~ 이미 있는 경우 — idempotent"
+  },
+  {
+    "file": "R-06-basic.json",
+    "rule_ids": ["R-06"],
+    "description": "LEFT( → LEFT (, RIGHT) → RIGHT ) 공백 보강"
+  },
+  {
+    "file": "R-06-already-spaced.json",
+    "rule_ids": ["R-06"],
+    "description": "LEFT/RIGHT 이미 공백 있는 경우 — idempotent"
+  },
+  {
+    "file": "R-07-basic.json",
+    "rule_ids": ["R-07"],
+    "description": "leading _ → {} LSUB {token} 변환 (2-pass after R-08)"
+  },
+  {
+    "file": "R-07-internal-subscript-ok.json",
+    "rule_ids": ["R-07"],
+    "description": "내부 _ (첨자)는 leading이 아니므로 변환 대상 아님"
+  },
+  {
+    "file": "R-07-leading-lsub.json",
+    "rule_ids": ["R-07"],
+    "description": "중괄호 토큰 leading _ → {} LSUB {n+1} 변환 (idempotent)"
+  },
+  {
+    "file": "R-08-basic.json",
+    "rule_ids": ["R-08"],
+    "description": "조합 nCr 패턴 정규화"
+  },
+  {
+    "file": "R-08-permutation.json",
+    "rule_ids": ["R-08"],
+    "description": "순열 nPr 패턴 정규화"
+  },
+  {
+    "file": "R-09-basic.json",
+    "rule_ids": ["R-09"],
+    "description": "단독 단위 문자열 rm체 enforcement"
+  },
+  {
+    "file": "R-09-already-rm.json",
+    "rule_ids": ["R-09"],
+    "description": "rm체 이미 적용된 경우 — idempotent"
+  },
+  {
+    "file": "R-09-text-side.json",
+    "rule_ids": ["R-09"],
+    "description": "{t} 파트에도 R-09 적용 — phase-02/03 spec 명시 동작"
+  },
+  {
+    "file": "R-10-basic.json",
+    "rule_ids": ["R-10"],
+    "description": "binary 연산자 앞뒤 공백 보장"
+  },
+  {
+    "file": "R-10-exponent-interior.json",
+    "rule_ids": ["R-10"],
+    "description": "지수 내부 연산자는 공백 보강 대상 아님"
+  },
+  {
+    "file": "R-10-unary-minus.json",
+    "rule_ids": ["R-10"],
+    "description": "단항 minus 앞뒤 공백 — Python ↔ TS 동치 (운영 데이터 기반)"
+  },
+  {
+    "file": "OP-q1-parity.json",
+    "rule_ids": ["R-10"],
+    "description": "운영 데이터 q1 스냅샷 — cross-language parity 회귀 방지"
+  },
+  {
+    "file": "OP-q2-parity.json",
+    "rule_ids": ["R-10"],
+    "description": "운영 데이터 q2 스냅샷 — cross-language parity 회귀 방지"
+  },
+  {
+    "file": "OP-q6-parity.json",
+    "rule_ids": ["R-10"],
+    "description": "운영 데이터 q6 스냅샷 — cross-language parity 회귀 방지"
+  },
+  {
+    "file": "OP-q12-parity.json",
+    "rule_ids": ["R-10"],
+    "description": "운영 데이터 q12 스냅샷 — cross-language parity 회귀 방지"
+  },
+  {
+    "file": "OP-q19-parity.json",
+    "rule_ids": ["R-10"],
+    "description": "운영 데이터 q19 스냅샷 — cross-language parity 회귀 방지"
+  },
+  {
+    "file": "IDEMPOTENT-01-already-normalized-eq.json",
+    "rule_ids": ["R-01", "R-02", "R-04", "R-05", "R-06"],
+    "description": "이미 정규화된 수식 — 재적용 시 변화 없음 (idempotency 검증)"
+  },
+  {
+    "file": "IDEMPOTENT-02-already-split-parts.json",
+    "rule_ids": ["R-01"],
+    "description": "이미 split된 parts — 재적용 시 변화 없음 (R-01 idempotency)"
+  },
+  {
+    "file": "IDEMPOTENT-03-combination-normalized.json",
+    "rule_ids": ["R-08", "R-09"],
+    "description": "순열/조합 및 rm체 이미 적용 — 재적용 시 변화 없음"
+  },
+  {
+    "file": "MULTI-01-deg-and-operator-spacing.json",
+    "rule_ids": ["R-02", "R-10"],
+    "description": "복합: DEG 붙여쓰기 + 연산자 공백 동시 적용"
+  },
+  {
+    "file": "MULTI-02-bullet-and-comma-tilde.json",
+    "rule_ids": ["R-03", "R-05"],
+    "description": "복합: bullet → cdot + 쉼표 뒤 ~ 삽입 동시 적용"
+  },
+  {
+    "file": "MULTI-03-split-and-left-right.json",
+    "rule_ids": ["R-01", "R-06"],
+    "description": "복합: 통수식 split + LEFT/RIGHT 공백 보강 동시 적용"
+  }
+]

@@ -1,0 +1,19 @@
+<hsp:secPr>
+  <hp:p>
+    <hp:run>
+      <hp:t>다음 물음에 답하시오. </hp:t>
+    </hp:run>
+  </hp:p>
+  <hp:endNotes>
+    <!-- number appears before suffixChar — attribute order violation -->
+    <hp:endNote number="1" suffixChar="46">
+      <!-- hp:t appears before hp:autoNum — body order violation -->
+      <hp:p>
+        <hp:run>
+          <hp:t>[정답] ③</hp:t>
+        </hp:run>
+      </hp:p>
+      <hp:autoNum numType="digit" />
+    </hp:endNote>
+  </hp:endNotes>
+</hsp:secPr>

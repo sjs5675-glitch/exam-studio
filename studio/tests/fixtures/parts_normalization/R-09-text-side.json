@@ -1,0 +1,11 @@
+{
+  "id": "R-09-text-side",
+  "rule_ids": ["R-09"],
+  "description": "{t} 파트에서도 숫자 뒤 단위는 rm 적용 — phase-02/03 spec 명시 동작",
+  "input": {
+    "parts": [{"t": "무게는 150 kg, 거리는 20 m 이다."}]
+  },
+  "expected": {
+    "parts": [{"t": "무게는 150 rm kg, 거리는 20 rm m 이다."}]
+  }
+}

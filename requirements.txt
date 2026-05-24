@@ -1,0 +1,14 @@
+# Exam Studio — Python dependencies
+# Install:  python3 -m pip install -r requirements.txt
+# (install.sh creates a .venv and installs these automatically)
+
+# PDF parsing / rendering (page → image, layout analysis, cropping)
+PyMuPDF>=1.24
+
+# Image processing (figure trim, crop, cleanup)
+Pillow>=10.0
+
+# Gemini image provider (figure regeneration / cropping). Optional —
+# only needed when the figure stage uses the Gemini ("nano-banana") provider.
+google-genai>=0.3
+google-generativeai>=0.8

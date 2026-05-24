@@ -1,0 +1,19 @@
+{
+  "id": "IDEMPOTENT-02",
+  "rule_ids": ["R-01"],
+  "description": "이미 split된 parts — 재적용 시 변화 없음 (R-01 idempotency)",
+  "input": {
+    "parts": [
+      {"eq": "f(x) = x^2 + 2x"},
+      {"t": " "},
+      {"eq": "= (x+1)^2 - 1"}
+    ]
+  },
+  "expected": {
+    "parts": [
+      {"eq": "f(x) = x^2 + 2x"},
+      {"t": " "},
+      {"eq": "= (x+1)^2 - 1"}
+    ]
+  }
+}

@@ -1,0 +1,15 @@
+<hsp:secPr>
+  <hp:endNotes>
+    <hp:endNote suffixChar="46" number="1">
+      <hp:autoNum numType="digit" />
+      <hp:p>
+        <hp:run>
+          <hp:t>[정답] ③</hp:t>
+        </hp:run>
+        <hp:run>
+          <hp:t>풀이: f(x) = x^2 이므로 f'(x) = 2x</hp:t>
+        </hp:run>
+      </hp:p>
+    </hp:endNote>
+  </hp:endNotes>
+</hsp:secPr>

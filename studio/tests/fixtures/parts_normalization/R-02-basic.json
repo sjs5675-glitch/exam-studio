@@ -1,0 +1,19 @@
+{
+  "id": "R-02-basic",
+  "rule_ids": ["R-02"],
+  "description": "DEG 붙여쓰기: 숫자와 DEG 사이 공백 제거",
+  "input": {
+    "parts": [
+      {"eq": "60 DEG"},
+      {"t": " 의 삼각비"},
+      {"eq": "90 DEG + 45 DEG"}
+    ]
+  },
+  "expected": {
+    "parts": [
+      {"eq": "60DEG"},
+      {"t": " 의 삼각비"},
+      {"eq": "90DEG + 45DEG"}
+    ]
+  }
+}

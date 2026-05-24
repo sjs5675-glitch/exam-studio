@@ -1,0 +1,15 @@
+{
+  "id": "R-04-basic",
+  "rule_ids": ["R-04"],
+  "description": "cdots 역따옴표 감싸기",
+  "input": {
+    "parts": [
+      {"eq": "a_1 + a_2 + cdots + a_n"}
+    ]
+  },
+  "expected": {
+    "parts": [
+      {"eq": "a_1 + a_2 + `cdots` + a_n"}
+    ]
+  }
+}

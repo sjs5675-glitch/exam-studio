@@ -1,0 +1,15 @@
+{
+  "id": "R-05-already-tilde",
+  "rule_ids": ["R-05"],
+  "description": "쉼표 뒤 ~ 이미 있는 경우 — idempotent",
+  "input": {
+    "parts": [
+      {"eq": "(a,~ b,~ c)"}
+    ]
+  },
+  "expected": {
+    "parts": [
+      {"eq": "(a,~ b,~ c)"}
+    ]
+  }
+}

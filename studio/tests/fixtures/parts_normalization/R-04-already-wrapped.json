@@ -1,0 +1,15 @@
+{
+  "id": "R-04-already-wrapped",
+  "rule_ids": ["R-04"],
+  "description": "cdots 이미 역따옴표로 감싸진 경우 — idempotent",
+  "input": {
+    "parts": [
+      {"eq": "a_1 + `cdots` + a_n"}
+    ]
+  },
+  "expected": {
+    "parts": [
+      {"eq": "a_1 + `cdots` + a_n"}
+    ]
+  }
+}

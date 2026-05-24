@@ -1,0 +1,15 @@
+{
+  "id": "IDEMPOTENT-03",
+  "rule_ids": ["R-08", "R-09"],
+  "description": "순열/조합 및 rm체 이미 적용 — 재적용 시 변화 없음",
+  "input": {
+    "parts": [
+      {"eq": "{it`_5`}{rm C}_{it 3} = 10 rm kg"}
+    ]
+  },
+  "expected": {
+    "parts": [
+      {"eq": "{it`_5`}{rm C}_{it 3} = 10 rm kg"}
+    ]
+  }
+}

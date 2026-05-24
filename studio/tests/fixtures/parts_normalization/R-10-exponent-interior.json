@@ -1,0 +1,16 @@
+{
+  "id": "R-10-exponent-interior",
+  "rule_ids": ["R-10"],
+  "description": "지수 내부 연산자는 공백 보강 대상 아님",
+  "input": {
+    "parts": [
+      {"eq": "x^{n+1} = y^{m-1}"}
+    ]
+  },
+  "expected": {
+    "parts": [
+      {"eq": "x^{n+1} = y^{m-1}"}
+    ]
+  },
+  "notes": "{}내부 n+1, m-1은 지수/첨자 컨텍스트 — top-level 연산자 공백 규칙 미적용. top-level = 은 이미 공백 있음."
+}

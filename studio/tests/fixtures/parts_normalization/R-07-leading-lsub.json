@@ -1,0 +1,16 @@
+{
+  "id": "R-07-leading-lsub",
+  "rule_ids": ["R-07"],
+  "description": "중괄호 토큰 leading _ → {} LSUB {token} 변환 (idempotent 검증 포함)",
+  "input": {
+    "parts": [
+      {"eq": "_{n+1}"}
+    ]
+  },
+  "expected": {
+    "parts": [
+      {"eq": "{} LSUB {n+1}"}
+    ]
+  },
+  "notes": "_{n+1} 형태도 LSUB 변환. 결과 '{} LSUB {n+1}'는 '{' 로 시작하므로 재적용 시 변환 안 됨 (idempotent)."
+}

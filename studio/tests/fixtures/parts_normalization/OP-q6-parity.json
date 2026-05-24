@@ -1,0 +1,387 @@
+{
+  "id": "OP-q6-parity",
+  "rule_ids": [
+    "R-10"
+  ],
+  "description": "운영 데이터 q6 — Python normalize_parts 출력 스냅샷 (cross-language parity)",
+  "input": {
+    "parts": [
+      {
+        "t": "두 곡선의 교점: "
+      },
+      {
+        "eq": "x^2 - 6x + 5 = - {1 over 4} x^2 + {3 over 2} x - {5 over 4}"
+      },
+      {
+        "br": true
+      },
+      {
+        "eq": "5x^2 - 30x + 25 = 0"
+      },
+      {
+        "br": true
+      },
+      {
+        "eq": "(x - 1)(x - 5) = 0"
+      },
+      {
+        "t": "이므로 "
+      },
+      {
+        "eq": "x = 1"
+      },
+      {
+        "t": " 또는 "
+      },
+      {
+        "eq": "x = 5"
+      },
+      {
+        "br": true
+      },
+      {
+        "t": "두 곡선으로 둘러싸인 도형의 넓이를 "
+      },
+      {
+        "eq": "S"
+      },
+      {
+        "t": "라 하면"
+      },
+      {
+        "br": true
+      },
+      {
+        "eq": "S = int_1^5 LEFT { left( - {1 over 4} x^2 + {3 over 2} x - {5 over 4} right) - (x^2 - 6x + 5) RIGHT } dx"
+      },
+      {
+        "br": true
+      },
+      {
+        "eq": "= int_1^5 left( - {5 over 4} x^2 + {15 over 2} x - {25 over 4} right) dx"
+      },
+      {
+        "br": true
+      },
+      {
+        "eq": "= - {5 over 4} int_1^5 (x - 1)(x - 5) dx"
+      },
+      {
+        "br": true
+      },
+      {
+        "t": "여기서 "
+      },
+      {
+        "eq": "int_1^5 (x - 1)(x - 5) dx = LEFT [ {x^3 over 3} - 3x^2 + 5x RIGHT ]_1^5"
+      },
+      {
+        "eq": "= left( {125 over 3} - 75 + 25 right) - left( {1 over 3} - 3 + 5 right)"
+      },
+      {
+        "eq": "= - {32 over 3}"
+      },
+      {
+        "br": true
+      },
+      {
+        "t": "따라서 "
+      },
+      {
+        "eq": "S = - {5 over 4} times left( - {32 over 3} right) = {40 over 3}"
+      },
+      {
+        "br": true
+      },
+      {
+        "t": "곡선 "
+      },
+      {
+        "eq": "y = a(x - 1)(x - 5)"
+      },
+      {
+        "t": "도 "
+      },
+      {
+        "eq": "x = 1"
+      },
+      {
+        "t": ", "
+      },
+      {
+        "eq": "x = 5"
+      },
+      {
+        "t": "를 지나며, "
+      },
+      {
+        "eq": "0 < a < 1"
+      },
+      {
+        "t": "이면 구간 "
+      },
+      {
+        "eq": "(1,~5)"
+      },
+      {
+        "t": "에서"
+      },
+      {
+        "br": true
+      },
+      {
+        "eq": "- {1 over 4} (x - 1)(x - 5) > a(x - 1)(x - 5) > (x - 1)(x - 5)"
+      },
+      {
+        "br": true
+      },
+      {
+        "t": "이므로 곡선 "
+      },
+      {
+        "eq": "y = a(x - 1)(x - 5)"
+      },
+      {
+        "t": "가 도형 내부를 지난다."
+      },
+      {
+        "br": true
+      },
+      {
+        "t": "이등분 조건에서 위쪽 넓이"
+      },
+      {
+        "eq": "= {S over 2} = {20 over 3}"
+      },
+      {
+        "br": true
+      },
+      {
+        "eq": "int_1^5 LEFT { left( - {1 over 4} x^2 + {3 over 2} x - {5 over 4} right) - a(x - 1)(x - 5) RIGHT } dx = {20 over 3}"
+      },
+      {
+        "br": true
+      },
+      {
+        "eq": "left( - {1 over 4} - a right) int_1^5 (x - 1)(x - 5) dx = {20 over 3}"
+      },
+      {
+        "br": true
+      },
+      {
+        "eq": "left( {1 over 4} + a right) times {32 over 3} = {20 over 3}"
+      },
+      {
+        "br": true
+      },
+      {
+        "eq": "{1 over 4} + a = {5 over 8}"
+      },
+      {
+        "br": true
+      },
+      {
+        "t": "따라서 "
+      },
+      {
+        "eq": "a = {3 over 8}"
+      }
+    ]
+  },
+  "expected": {
+    "parts": [
+      {
+        "t": "두 곡선의 교점: "
+      },
+      {
+        "eq": "x^2 - 6x + 5 = - {1 over 4} x^2 + {3 over 2} x - {5 over 4}"
+      },
+      {
+        "br": true
+      },
+      {
+        "eq": "5x^2 - 30x + 25 = 0"
+      },
+      {
+        "br": true
+      },
+      {
+        "eq": "(x - 1)(x - 5) = 0"
+      },
+      {
+        "t": "이므로 "
+      },
+      {
+        "eq": "x = 1"
+      },
+      {
+        "t": " 또는 "
+      },
+      {
+        "eq": "x = 5"
+      },
+      {
+        "br": true
+      },
+      {
+        "t": "두 곡선으로 둘러싸인 도형의 넓이를 "
+      },
+      {
+        "eq": "S"
+      },
+      {
+        "t": "라 하면"
+      },
+      {
+        "br": true
+      },
+      {
+        "eq": "S = int_1^5 LEFT { left( - {1 over 4} x^2 + {3 over 2} x - {5 over 4} right) - (x^2 - 6x + 5) RIGHT } dx"
+      },
+      {
+        "br": true
+      },
+      {
+        "eq": "= int_1^5 left( - {5 over 4} x^2 + {15 over 2} x - {25 over 4} right) dx"
+      },
+      {
+        "br": true
+      },
+      {
+        "eq": "= - {5 over 4} int_1^5 (x - 1)(x - 5) dx"
+      },
+      {
+        "br": true
+      },
+      {
+        "t": "여기서 "
+      },
+      {
+        "eq": "int_1^5 (x - 1)(x - 5) dx = LEFT [ {x^3 over 3} - 3x^2 + 5x RIGHT ]_1^5"
+      },
+      {
+        "eq": "= left( {125 over 3} - 75 + 25 right) - left( {1 over 3} - 3 + 5 right)"
+      },
+      {
+        "eq": "= - {32 over 3}"
+      },
+      {
+        "br": true
+      },
+      {
+        "t": "따라서 "
+      },
+      {
+        "eq": "S = - {5 over 4} times left( - {32 over 3} right)"
+      },
+      {
+        "t": " "
+      },
+      {
+        "eq": "= {40 over 3}"
+      },
+      {
+        "br": true
+      },
+      {
+        "t": "곡선 "
+      },
+      {
+        "eq": "y = a(x - 1)(x - 5)"
+      },
+      {
+        "t": "도 "
+      },
+      {
+        "eq": "x = 1"
+      },
+      {
+        "t": ", "
+      },
+      {
+        "eq": "x = 5"
+      },
+      {
+        "t": "를 지나며, "
+      },
+      {
+        "eq": "0 < a < 1"
+      },
+      {
+        "t": "이면 구간 "
+      },
+      {
+        "eq": "(1,~5)"
+      },
+      {
+        "t": "에서"
+      },
+      {
+        "br": true
+      },
+      {
+        "eq": "- {1 over 4} (x - 1)(x - 5) > a(x - 1)(x - 5) > (x - 1)(x - 5)"
+      },
+      {
+        "br": true
+      },
+      {
+        "t": "이므로 곡선 "
+      },
+      {
+        "eq": "y = a(x - 1)(x - 5)"
+      },
+      {
+        "t": "가 도형 내부를 지난다."
+      },
+      {
+        "br": true
+      },
+      {
+        "t": "이등분 조건에서 위쪽 넓이"
+      },
+      {
+        "eq": "= {S over 2}"
+      },
+      {
+        "t": " "
+      },
+      {
+        "eq": "= {20 over 3}"
+      },
+      {
+        "br": true
+      },
+      {
+        "eq": "int_1^5 LEFT { left( - {1 over 4} x^2 + {3 over 2} x - {5 over 4} right) - a(x - 1)(x - 5) RIGHT } dx = {20 over 3}"
+      },
+      {
+        "br": true
+      },
+      {
+        "eq": "left( - {1 over 4} - a right) int_1^5 (x - 1)(x - 5) dx = {20 over 3}"
+      },
+      {
+        "br": true
+      },
+      {
+        "eq": "left( {1 over 4} + a right) times {32 over 3} = {20 over 3}"
+      },
+      {
+        "br": true
+      },
+      {
+        "eq": "{1 over 4} + a = {5 over 8}"
+      },
+      {
+        "br": true
+      },
+      {
+        "t": "따라서 "
+      },
+      {
+        "eq": "a = {3 over 8}"
+      }
+    ]
+  }
+}

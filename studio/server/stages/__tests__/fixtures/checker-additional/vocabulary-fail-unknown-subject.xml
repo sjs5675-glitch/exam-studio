@@ -1,0 +1,16 @@
+<hsp:secPr>
+  <hp:p>
+    <hp:run>
+      <hp:t>[과목] 알수없는과목</hp:t>
+    </hp:run>
+    <hp:run>
+      <hp:t>[중단원] 알수없는중단원</hp:t>
+    </hp:run>
+    <hp:run>
+      <hp:t>[범위] 알수없는범위</hp:t>
+    </hp:run>
+    <hp:run>
+      <hp:t>[난이도] 중</hp:t>
+    </hp:run>
+  </hp:p>
+</hsp:secPr>

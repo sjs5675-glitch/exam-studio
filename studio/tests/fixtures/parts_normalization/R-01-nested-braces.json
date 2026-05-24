@@ -1,0 +1,16 @@
+{
+  "id": "R-01-nested-braces",
+  "rule_ids": ["R-01"],
+  "description": "depth-aware: 중괄호 내부 = 는 split 대상 아님",
+  "input": {
+    "parts": [
+      {"eq": "f(x) = {g(x) = x^2}"}
+    ]
+  },
+  "expected": {
+    "parts": [
+      {"eq": "f(x) = {g(x) = x^2}"}
+    ]
+  },
+  "notes": "중괄호 내부의 = 는 top-level이 아니므로 split 안 함. top-level = 가 1개이므로 split 없음."
+}

@@ -1,0 +1,15 @@
+{
+  "id": "R-06-already-spaced",
+  "rule_ids": ["R-06"],
+  "description": "LEFT/RIGHT 이미 공백 있는 경우 — idempotent",
+  "input": {
+    "parts": [
+      {"eq": "LEFT (a + b RIGHT )"}
+    ]
+  },
+  "expected": {
+    "parts": [
+      {"eq": "LEFT (a + b RIGHT )"}
+    ]
+  }
+}

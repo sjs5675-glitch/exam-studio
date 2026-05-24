@@ -1,0 +1,145 @@
+[
+  {
+    "id": "create-all-fresh",
+    "description": "신규 작업 — 모든 문제 none 상태 → 전체 extractor→solver→verifier",
+    "resume": { "type": "create" },
+    "states": { "1": "none", "2": "none", "3": "none" },
+    "allQuestions": [1, 2, 3],
+    "expected": {
+      "totalQuestions": [1, 2, 3],
+      "perQuestion": [
+        { "questionNumber": 1, "stages": ["extractor", "solver", "verifier"] },
+        { "questionNumber": 2, "stages": ["extractor", "solver", "verifier"] },
+        { "questionNumber": 3, "stages": ["extractor", "solver", "verifier"] }
+      ]
+    }
+  },
+  {
+    "id": "all-verified-skip",
+    "description": "모든 문제 verified → stages=[] (전체 스킵)",
+    "resume": { "type": "resume" },
+    "states": { "1": "verified", "2": "verified", "3": "verified" },
+    "allQuestions": [1, 2, 3],
+    "expected": {
+      "totalQuestions": [1, 2, 3],
+      "perQuestion": [
+        { "questionNumber": 1, "stages": [] },
+        { "questionNumber": 2, "stages": [] },
+        { "questionNumber": 3, "stages": [] }
+      ]
+    }
+  },
+  {
+    "id": "partial-extracted",
+    "description": "Q1=extracted, Q2=none → Q1은 solver부터, Q2는 extractor부터",
+    "resume": { "type": "resume" },
+    "states": { "1": "extracted", "2": "none" },
+    "allQuestions": [1, 2],
+    "expected": {
+      "totalQuestions": [1, 2],
+      "perQuestion": [
+        { "questionNumber": 1, "stages": ["solver", "verifier"] },
+        { "questionNumber": 2, "stages": ["extractor", "solver", "verifier"] }
+      ]
+    }
+  },
+  {
+    "id": "partial-solved",
+    "description": "Q1=solved → verifier만 필요",
+    "resume": { "type": "resume" },
+    "states": { "1": "solved" },
+    "allQuestions": [1],
+    "expected": {
+      "totalQuestions": [1],
+      "perQuestion": [
+        { "questionNumber": 1, "stages": ["verifier"] }
+      ]
+    }
+  },
+  {
+    "id": "resume-specific-questions",
+    "description": "resume --q=1,3 — 지정 문제만 (상태 무관하게 questions 필터링)",
+    "resume": { "type": "resume", "questions": [1, 3] },
+    "states": { "1": "none", "2": "verified", "3": "extracted" },
+    "allQuestions": [1, 2, 3],
+    "expected": {
+      "totalQuestions": [1, 2, 3],
+      "perQuestion": [
+        { "questionNumber": 1, "stages": ["extractor", "solver", "verifier"] },
+        { "questionNumber": 3, "stages": ["solver", "verifier"] }
+      ]
+    }
+  },
+  {
+    "id": "resume-from-solver-override",
+    "description": "resume --from=solver → 상태와 무관하게 solver부터 강제 재실행",
+    "resume": { "type": "resume", "fromStage": "solver" },
+    "states": { "1": "verified", "2": "extracted", "3": "none" },
+    "allQuestions": [1, 2, 3],
+    "expected": {
+      "totalQuestions": [1, 2, 3],
+      "perQuestion": [
+        { "questionNumber": 1, "stages": ["solver", "verifier"] },
+        { "questionNumber": 2, "stages": ["solver", "verifier"] },
+        { "questionNumber": 3, "stages": ["extractor", "solver", "verifier"] }
+      ]
+    }
+  },
+  {
+    "id": "resume-from-verifier-override",
+    "description": "resume --from=verifier → verifier부터 강제 재실행 (verified 상태도 포함)",
+    "resume": { "type": "resume", "fromStage": "verifier" },
+    "states": { "1": "verified", "2": "solved" },
+    "allQuestions": [1, 2],
+    "expected": {
+      "totalQuestions": [1, 2],
+      "perQuestion": [
+        { "questionNumber": 1, "stages": ["verifier"] },
+        { "questionNumber": 2, "stages": ["verifier"] }
+      ]
+    }
+  },
+  {
+    "id": "resume-from-extractor-override",
+    "description": "resume --from=extractor → 전체 재실행 (모든 문제가 verified여도)",
+    "resume": { "type": "resume", "fromStage": "extractor" },
+    "states": { "1": "verified", "2": "verified" },
+    "allQuestions": [1, 2],
+    "expected": {
+      "totalQuestions": [1, 2],
+      "perQuestion": [
+        { "questionNumber": 1, "stages": ["extractor", "solver", "verifier"] },
+        { "questionNumber": 2, "stages": ["extractor", "solver", "verifier"] }
+      ]
+    }
+  },
+  {
+    "id": "mixed-states",
+    "description": "Q1=verified, Q2=solved, Q3=extracted, Q4=none → 각각 다른 시작점",
+    "resume": { "type": "resume" },
+    "states": { "1": "verified", "2": "solved", "3": "extracted", "4": "none" },
+    "allQuestions": [1, 2, 3, 4],
+    "expected": {
+      "totalQuestions": [1, 2, 3, 4],
+      "perQuestion": [
+        { "questionNumber": 1, "stages": [] },
+        { "questionNumber": 2, "stages": ["verifier"] },
+        { "questionNumber": 3, "stages": ["solver", "verifier"] },
+        { "questionNumber": 4, "stages": ["extractor", "solver", "verifier"] }
+      ]
+    }
+  },
+  {
+    "id": "single-question-resume-q-from",
+    "description": "resume --q=2 --from=extractor → 단일 문제 강제 재실행",
+    "resume": { "type": "resume", "questions": [2], "fromStage": "extractor" },
+    "states": { "1": "verified", "2": "solved", "3": "verified" },
+    "allQuestions": [1, 2, 3],
+    "expected": {
+      "totalQuestions": [1, 2, 3],
+      "perQuestion": [
+        { "questionNumber": 2, "stages": ["extractor", "solver", "verifier"] }
+      ]
+    }
+  }
+]

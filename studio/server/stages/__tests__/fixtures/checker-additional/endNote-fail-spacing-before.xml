@@ -1,0 +1,16 @@
+<hsp:secPr>
+  <!-- Last text node in the preceding <hp:p> ends with a space — 미주-문제 띄어쓰기 없음 위반 -->
+  <hp:p>
+    <hp:run>
+      <hp:t>다음 물음에 답하시오. </hp:t>
+    </hp:run>
+  </hp:p>
+  <hp:endNote suffixChar="46" number="1">
+    <hp:autoNum numType="digit" />
+    <hp:p>
+      <hp:run>
+        <hp:t>[정답] ①</hp:t>
+      </hp:run>
+    </hp:p>
+  </hp:endNote>
+</hsp:secPr>

@@ -1,0 +1,21 @@
+{
+  "id": "IDEMPOTENT-01",
+  "rule_ids": ["R-01", "R-02", "R-04", "R-05", "R-06"],
+  "description": "이미 정규화된 수식 — 재적용 시 변화 없음 (idempotency 검증)",
+  "input": {
+    "parts": [
+      {"t": "풀이: "},
+      {"eq": "sin 30DEG = {1 OVER 2}"},
+      {"t": " 이므로 "},
+      {"eq": "LEFT ( a,~ b RIGHT ) = `cdots`"}
+    ]
+  },
+  "expected": {
+    "parts": [
+      {"t": "풀이: "},
+      {"eq": "sin 30DEG = {1 OVER 2}"},
+      {"t": " 이므로 "},
+      {"eq": "LEFT ( a,~ b RIGHT ) = `cdots`"}
+    ]
+  }
+}

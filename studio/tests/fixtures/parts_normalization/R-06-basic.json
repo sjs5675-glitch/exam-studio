@@ -1,0 +1,15 @@
+{
+  "id": "R-06-basic",
+  "rule_ids": ["R-06"],
+  "description": "LEFT( → LEFT (, RIGHT) → RIGHT ) 공백 보강",
+  "input": {
+    "parts": [
+      {"eq": "LEFT(x + {y OVER z} RIGHT)"}
+    ]
+  },
+  "expected": {
+    "parts": [
+      {"eq": "LEFT (x + {y OVER z} RIGHT )"}
+    ]
+  }
+}

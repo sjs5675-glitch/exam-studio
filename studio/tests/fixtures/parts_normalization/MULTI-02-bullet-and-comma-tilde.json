@@ -1,0 +1,15 @@
+{
+  "id": "MULTI-02",
+  "rule_ids": ["R-03", "R-05"],
+  "description": "복합: bullet → cdot + 쉼표 뒤 ~ 삽입 동시 적용",
+  "input": {
+    "parts": [
+      {"eq": "(a · b, c · d, e · f)"}
+    ]
+  },
+  "expected": {
+    "parts": [
+      {"eq": "(a cdot b,~ c cdot d,~ e cdot f)"}
+    ]
+  }
+}

@@ -1,0 +1,126 @@
+# Exam Studio
+
+수학 기출 시험지를 **HWPX(한컴오피스 개방형 포맷)** 로 제작하는 워크플로우 도구입니다.
+PDF에서 문제를 추출하고, 해설을 생성·검증하고, 그림을 처리한 뒤 HWPX 문서로 조립합니다.
+
+- **웹 UI**: Next.js (`studio/`)
+- **문서 엔진**: Python (HWPX = ZIP+XML 직접 조작)
+- **AI 파이프라인**: Claude / Gemini (추출·해설·그림)
+
+---
+
+## 빠른 시작 (사람용)
+
+### macOS / Linux
+```bash
+./install.sh        # 1회: Node + Python 의존성 설치 (.venv 생성)
+./start.command     # 실행 (또는 Finder 에서 더블클릭). http://localhost:3020 자동 오픈
+```
+
+### Windows
+```
+install.bat         더블클릭 (1회 설치)
+"Exam Studio.vbs"   더블클릭 (실행, 콘솔 없이 브라우저 자동 오픈)
+```
+> 로그를 보며 실행하려면 `start.bat` 을 더블클릭하세요.
+
+설치 전 **Node.js 20+** 와 **Python 3.10+** 가 설치돼 있어야 합니다
+(Windows는 Python 설치 시 *Add Python to PATH* 체크). pnpm 은 설치 스크립트가 자동으로 준비합니다.
+
+---
+
+## 자동 설치 (AI 코딩 에이전트용 — Claude Code / Codex)
+
+이 저장소를 클론한 뒤 아래 절차를 **순서대로** 실행하면 설치·실행이 끝납니다. 먼저 OS를 판별하세요.
+
+### macOS / Linux
+```bash
+# 1) 사전 요건 확인 (없으면 사용자에게 설치 요청)
+node -v        # v20 이상
+python3 --version   # 3.10 이상
+
+# 2) 설치 (Node 의존성 + .venv 파이썬 의존성)
+chmod +x install.sh && ./install.sh
+
+# 3) (선택) API 키 입력 — Gemini 그림 처리 / DeepSeek 사용 시
+#    studio/.env 의 GEMINI_API_KEY, DEEPSEEK_API_KEY 를 채운다.
+#    Claude CLI 구독자는 키 없이 legacy 흐름 사용 가능('claude' CLI 필요).
+
+# 4) 실행 (백그라운드로 띄우고 검증)
+( cd studio && export PATH="$PWD/../.venv/bin:$PATH" && pnpm dev:sse & )
+( cd studio && export PATH="$PWD/../.venv/bin:$PATH" && pnpm dev & )
+
+# 5) 검증: 200 이 나오면 성공
+sleep 8 && curl -s -o /dev/null -w "%{http_code}" http://localhost:3020
+```
+대화형 실행/브라우저 오픈까지 안내하려면 `./start.command` 를 실행하라고 사용자에게 알려주세요.
+
+### Windows (PowerShell)
+```powershell
+node -v ; python --version
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+# 실행: "Exam Studio.vbs" 더블클릭 (또는 start.bat)
+```
+
+### 검증 기준 (성공 조건)
+- `cd studio && npx tsc --noEmit` → 에러 0
+- `cd studio && pnpm test` → 통과 (Live API 테스트는 키 없으면 skip)
+- `http://localhost:3020` 접속 시 대시보드가 뜨고 좌측 메뉴에 **시험지 제작 / 히스토리 / 설정** 이 보임
+
+---
+
+## 설정 (`studio/.env`)
+
+`install` 스크립트가 `studio/.env.example` → `studio/.env` 를 복사합니다. 필요한 키만 채우세요.
+
+| 변수 | 용도 | 필수 |
+| :--- | :--- | :--- |
+| `GEMINI_API_KEY` | 그림(figure) 재생성·크롭 (nano-banana) | 그림 처리 시 |
+| `DEEPSEEK_API_KEY` | DeepSeek API provider (opt-in) | 선택 |
+| `HWPX_TEMPLATE_PATH` | 공통 양식지 HWPX 경로 (비우면 업로드 파일 사용) | 선택 |
+| `NEXT_PUBLIC_SSE_URL` | SSE 서버 URL (기본 `http://localhost:3021`) | — |
+
+**AI 제공자**: 시험지 제작의 추출/해설 단계는 다음 중 하나가 필요합니다.
+- `claude` CLI 설치 + 로그인 (legacy 흐름, 추가 과금 없음), 또는
+- API 키 기반 provider (DeepSeek 등) — `/settings` 에서 stage 별 지정.
+
+---
+
+## 명령어 (개발자용)
+
+`studio/` 에서 실행:
+
+| 명령 | 설명 |
+| :--- | :--- |
+| `pnpm dev` | Next.js 개발 서버 (port 3020) |
+| `pnpm dev:sse` | SSE 로그 서버 (port 3021) |
+| `pnpm build` | 프로덕션 빌드 |
+| `pnpm start` | 프로덕션 서버 |
+| `pnpm test` | Vitest 단위 테스트 |
+| `npx tsc --noEmit` | 타입 검증 |
+
+---
+
+## 프로젝트 구조
+
+```
+exam-studio/
+├── install.sh / install.bat / install.ps1   # 의존성 설치
+├── start.command / start.bat / Exam Studio.vbs  # 실행 런처
+├── requirements.txt          # Python 의존성 (PyMuPDF, Pillow, google-genai)
+├── studio/                   # Next.js 웹앱 (UI + API + SSE + stage orchestrator)
+├── .claude/                  # AI 에이전트(exam-*) + 스킬(exam-create 등)
+├── resources/hwpx_base/      # HWPX 템플릿 XML (빌더가 사용)
+├── docs/                     # 아키텍처 · 작업 가이드라인
+├── build_hwpx.py, assemble.py, tables.py, ... # HWPX 조립 엔진
+└── workspaces/               # PDF 크롭 등 Python 워크스페이스
+```
+
+---
+
+## 문제 해결
+
+- **`python3: command not found` / 그림 처리 실패** → `./install.sh`(또는 `install.ps1`)로 `.venv` 를 만들었는지 확인. 런처가 `.venv` 를 PATH 에 자동 추가하므로 **런처로 실행**해야 파이썬 의존성이 인식됩니다.
+- **포트 충돌 (3020/3021)** → 런처가 기존 프로세스를 정리합니다. 수동: 해당 포트 점유 프로세스 종료.
+- **PowerShell 실행 차단** → `install.bat` 이 `-ExecutionPolicy Bypass` 로 우회합니다.
+- **PyMuPDF/Pillow 설치 실패** → Python 버전을 확인하세요(3.10–3.12 권장). 일부 최신 버전은 휠이 없을 수 있습니다.

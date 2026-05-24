@@ -1,0 +1,18 @@
+{
+  "id": "MULTI-03",
+  "rule_ids": ["R-01", "R-06"],
+  "description": "복합: 통수식 split + LEFT/RIGHT 공백 보강 동시 적용",
+  "input": {
+    "parts": [
+      {"eq": "f(x) = LEFT(x^2 + 1 RIGHT) = g(x)"}
+    ]
+  },
+  "expected": {
+    "parts": [
+      {"eq": "f(x) = LEFT (x^2 + 1 RIGHT )"},
+      {"t": " "},
+      {"eq": "= g(x)"}
+    ]
+  },
+  "notes": "LEFT/RIGHT 공백 보강 후, top-level = 2개 → split. LEFT...RIGHT 내부 = 없으므로 depth check 불필요."
+}

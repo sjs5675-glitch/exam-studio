@@ -1,0 +1,15 @@
+{
+  "id": "R-05-basic",
+  "rule_ids": ["R-05"],
+  "description": "수식 내 쉼표 뒤 ~ 자동 삽입",
+  "input": {
+    "parts": [
+      {"eq": "(a, b, c)"}
+    ]
+  },
+  "expected": {
+    "parts": [
+      {"eq": "(a,~ b,~ c)"}
+    ]
+  }
+}

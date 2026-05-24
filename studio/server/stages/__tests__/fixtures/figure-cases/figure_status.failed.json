@@ -1,0 +1,13 @@
+{
+  "status": "failed",
+  "questions": {
+    "2": {
+      "status": "failed",
+      "error": "source image missing: inputs/시험지 제작/question_images/q02.png"
+    },
+    "5": {
+      "status": "failed",
+      "error": "gemini generation failed after 3 attempts"
+    }
+  }
+}

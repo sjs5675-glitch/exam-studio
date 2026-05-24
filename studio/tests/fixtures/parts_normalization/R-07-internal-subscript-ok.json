@@ -1,0 +1,16 @@
+{
+  "id": "R-07-internal-subscript-ok",
+  "rule_ids": ["R-07"],
+  "description": "내부 _ (첨자)는 leading이 아니므로 변환 대상 아님",
+  "input": {
+    "parts": [
+      {"eq": "a_n + b_{n+1}"}
+    ]
+  },
+  "expected": {
+    "parts": [
+      {"eq": "a_n + b_{n+1}"}
+    ]
+  },
+  "notes": "a_n, b_{n+1}은 정상 HWP 수식 — leading _ 아님"
+}

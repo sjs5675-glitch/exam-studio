@@ -1,0 +1,15 @@
+{
+  "id": "R-09-basic",
+  "rule_ids": ["R-09"],
+  "description": "단독 단위 문자열 rm체 enforcement",
+  "input": {
+    "parts": [
+      {"eq": "150 kg"}
+    ]
+  },
+  "expected": {
+    "parts": [
+      {"eq": "150 rm kg"}
+    ]
+  }
+}

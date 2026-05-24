@@ -1,0 +1,15 @@
+{
+  "id": "R-09-already-rm",
+  "rule_ids": ["R-09"],
+  "description": "rm체 이미 적용된 경우 — idempotent",
+  "input": {
+    "parts": [
+      {"eq": "30 rm m / rm s"}
+    ]
+  },
+  "expected": {
+    "parts": [
+      {"eq": "30 rm m / rm s"}
+    ]
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "id": "R-10-basic",
+  "rule_ids": ["R-10"],
+  "description": "binary 연산자 앞뒤 공백 보장",
+  "input": {
+    "parts": [
+      {"eq": "x+y=3"}
+    ]
+  },
+  "expected": {
+    "parts": [
+      {"eq": "x + y = 3"}
+    ]
+  }
+}

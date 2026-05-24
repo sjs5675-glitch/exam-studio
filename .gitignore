@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Backup files
+*.backup*
+*.bak-*
+*.bak
+.DS_Store
+
+# Runtime cache
+.v3cache/
+.v3cache_prev/
+.v3cache_*/
+studio/inputs/시험지 제작/.v3cache/
+studio/inputs/시험지 제작/.v3cache_prev/
+studio/inputs/시험지 제작/.v3cache_*/
+studio/inputs/시험지 제작/session_meta.json
+studio/inputs/시험지 제작/question_images/
+
+# Job-specific input files (not templates)
+studio/inputs/시험지 제작/*.pdf
+
+# Generated outputs
+outputs/
+
+# Exam Studio runtime
+studio/bat_*.txt
+studio/sse_test*.txt
+studio/data/jobs/
+
+# Node
+node_modules/
+studio/node_modules/
+studio/.next/
+
+# Env
+studio/.env
+studio/.env.local
+
+# engram structural index
+.engram/

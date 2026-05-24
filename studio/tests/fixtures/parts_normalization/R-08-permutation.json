@@ -1,0 +1,15 @@
+{
+  "id": "R-08-permutation",
+  "rule_ids": ["R-08"],
+  "description": "순열 nPr 패턴 정규화",
+  "input": {
+    "parts": [
+      {"eq": "_{10}P_{4}"}
+    ]
+  },
+  "expected": {
+    "parts": [
+      {"eq": "{it`_{10}`}{rm P}_{it 4}"}
+    ]
+  }
+}

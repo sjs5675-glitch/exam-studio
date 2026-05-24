@@ -1,0 +1,20 @@
+{
+  "id": "R-10-unary-minus",
+  "rule_ids": ["R-10"],
+  "description": "단항 minus 앞뒤 공백 적용 — Python ↔ TS 동치",
+  "input": {
+    "parts": [
+      {"eq": "= -2"},
+      {"eq": "k =-1"},
+      {"eq": "=-{1 over 6}a^3 + 6a geq 0"}
+    ]
+  },
+  "expected": {
+    "parts": [
+      {"eq": "= -2"},
+      {"eq": "k = -1"},
+      {"eq": "=-{1 over 6}a^3 + 6a geq 0"}
+    ]
+  },
+  "notes": "단항 minus 처리: '= -2'는 = 가 수식 시작(unary context)이므로 spacing 없음, 공백 그대로 보존. 'k =-1'은 k 뒤 = 가 binary → 'k = ', -1은 unary. 운영 데이터 기반 회귀 방지 fixture."
+}

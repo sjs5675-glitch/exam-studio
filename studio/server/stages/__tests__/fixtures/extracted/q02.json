@@ -1,0 +1,11 @@
+{
+  "question": "그림을 보고 물음에 답하시오. (문제 2)",
+  "choices": ["① 가", "② 나", "③ 다", "④ 라", "⑤ 마"],
+  "answer": "③",
+  "has_figure": true,
+  "figure_info": {
+    "description_en": "A right triangle with legs a and b and hypotenuse c.",
+    "position": "right",
+    "crop_ratio": [0.1, 0.1, 0.9, 0.9]
+  }
+}
