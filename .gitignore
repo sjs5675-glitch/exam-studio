@@ -28,6 +28,7 @@ studio/inputs/시험지 제작/*.pdf
 outputs/
 
 # Exam Studio runtime
+.logs/
 studio/bat_*.txt
 studio/sse_test*.txt
 studio/data/jobs/

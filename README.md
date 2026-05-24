@@ -13,16 +13,19 @@ PDF에서 문제를 추출하고, 해설을 생성·검증하고, 그림을 처�
 
 ### macOS / Linux
 ```bash
-./install.sh        # 1회: Node + Python 의존성 설치 (.venv 생성)
-./start.command     # 실행 (또는 Finder 에서 더블클릭). http://localhost:3020 자동 오픈
+./install.sh                  # 1회: Node + Python 의존성 설치 (.venv 생성)
 ```
+실행 — 둘 중 하나를 **Finder 에서 더블클릭** (둘 다 http://localhost:3020 자동 오픈):
+- `start-background.command` — 백그라운드 실행 (창 닫아도 계속, 로그는 `.logs/`)
+- `start-logs.command` — 터미널 창에 **실시간 로그** 표시
 
 ### Windows
-```
-install.bat         더블클릭 (1회 설치)
-"Exam Studio.vbs"   더블클릭 (실행, 콘솔 없이 브라우저 자동 오픈)
-```
-> 로그를 보며 실행하려면 `start.bat` 을 더블클릭하세요.
+1회 설치: `install.bat` **더블클릭**. 이후 실행 — 둘 중 하나를 더블클릭:
+- `start-background.vbs` — 백그라운드 실행 (콘솔 없이 브라우저 자동 오픈)
+- `start-logs.bat` — 로그 창을 띄워 **실시간 로그** 표시
+
+> 백그라운드 실행을 멈추려면: mac `lsof -ti tcp:3020 tcp:3021 | xargs kill`,
+> Windows 는 `start-logs.bat` 으로 한 번 실행 후 키 입력으로 종료하거나 작업 관리자에서 node 종료.
 
 설치 전 **Node.js 20+** 와 **Python 3.10+** 가 설치돼 있어야 합니다
 (Windows는 Python 설치 시 *Add Python to PATH* 체크). pnpm 은 설치 스크립트가 자동으로 준비합니다.
@@ -53,13 +56,13 @@ chmod +x install.sh && ./install.sh
 # 5) 검증: 200 이 나오면 성공
 sleep 8 && curl -s -o /dev/null -w "%{http_code}" http://localhost:3020
 ```
-대화형 실행/브라우저 오픈까지 안내하려면 `./start.command` 를 실행하라고 사용자에게 알려주세요.
+대화형 실행/브라우저 오픈까지 안내하려면 `./start-logs.command`(로그 창) 또는 `./start-background.command`(백그라운드) 를 더블클릭하라고 사용자에게 알려주세요.
 
 ### Windows (PowerShell)
 ```powershell
 node -v ; python --version
 powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
-# 실행: "Exam Studio.vbs" 더블클릭 (또는 start.bat)
+# 실행: start-background.vbs (백그라운드) 또는 start-logs.bat (로그 창) 더블클릭
 ```
 
 ### 검증 기준 (성공 조건)
@@ -106,7 +109,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 ```
 exam-studio/
 ├── install.sh / install.bat / install.ps1   # 의존성 설치
-├── start.command / start.bat / Exam Studio.vbs  # 실행 런처
+├── start-background.* / start-logs.*       # 실행 런처 (mac/win × 백그라운드/로그)
 ├── requirements.txt          # Python 의존성 (PyMuPDF, Pillow, google-genai)
 ├── studio/                   # Next.js 웹앱 (UI + API + SSE + stage orchestrator)
 ├── .claude/                  # AI 에이전트(exam-*) + 스킬(exam-create 등)
