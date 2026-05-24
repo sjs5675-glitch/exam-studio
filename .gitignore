@@ -44,3 +44,7 @@ studio/.env.local
 
 # engram structural index
 .engram/
+
+# claude phase-skills runtime logs
+.claude/phase-run-edits.log
+.claude/phase-run-sessions.log
