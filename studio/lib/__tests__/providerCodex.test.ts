@@ -102,6 +102,87 @@ describe("Codex CLI provider", () => {
     expect(parseCodexJsonLine("{not json")).toEqual([]);
   });
 
+  // codex 0.42.x `--json` emits the final answer as an `item.completed` event
+  // whose `item` is an `agent_message` carrying the text in `.text`.
+  it("extracts agent_message text from an item.completed event (real --json success shape)", () => {
+    const events = parseCodexJsonLine(JSON.stringify({
+      type: "item.completed",
+      item: { id: "item_0", type: "agent_message", text: '{"ok":true,"n":7}' },
+    }));
+    expect(events).toEqual([
+      {
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: '{"ok":true,"n":7}' }],
+        },
+      },
+    ]);
+  });
+
+  // `codex exec --json` (0.42.x) also emits lifecycle/error events as { id, msg: { type, ... } }.
+  describe("--json (msg-wrapped) event format", () => {
+    it("extracts agent_message as assistant text", () => {
+      const events = parseCodexJsonLine(JSON.stringify({
+        id: "0",
+        msg: { type: "agent_message", message: '{"number":1,"answer":"①"}' },
+      }));
+      expect(events).toEqual([
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: '{"number":1,"answer":"①"}' }],
+          },
+        },
+      ]);
+    });
+
+    it("surfaces a msg error (e.g. token refresh 401) as a failed result", () => {
+      const [event] = parseCodexJsonLine(JSON.stringify({
+        id: "0",
+        msg: { type: "error", message: "Failed to refresh token: 401 Unauthorized" },
+      }));
+      expect(event).toEqual({
+        type: "result",
+        subtype: "error",
+        result: "Failed to refresh token: 401 Unauthorized",
+      });
+    });
+
+    it("maps exec_command_begin to a Bash tool_use for output-file detection", () => {
+      const [event] = parseCodexJsonLine(JSON.stringify({
+        id: "0",
+        msg: { type: "exec_command_begin", command: "zip -r outputs/final.hwpx Contents" },
+      }));
+      const sseEvents = transformToSSE(event, { name: "" });
+      expect(sseEvents).toContainEqual({
+        event: "file",
+        data: { type: "hwpx", name: "final.hwpx", path: "outputs/final.hwpx" },
+      });
+    });
+
+    it("drops lifecycle / delta events (task_started, token_count, deltas)", () => {
+      expect(parseCodexJsonLine(JSON.stringify({ id: "0", msg: { type: "task_started" } }))).toEqual([]);
+      expect(parseCodexJsonLine(JSON.stringify({ id: "0", msg: { type: "token_count", info: {} } }))).toEqual([]);
+      expect(parseCodexJsonLine(JSON.stringify({ id: "0", msg: { type: "agent_message_delta", delta: "x" } }))).toEqual([]);
+    });
+  });
+
+  it("appends --output-last-message when a file path is given", () => {
+    expect(buildCodexExecArgs("/repo", undefined, "/tmp/last.txt")).toEqual([
+      "exec",
+      "--json",
+      "--cd",
+      "/repo",
+      "--sandbox",
+      "danger-full-access",
+      "--output-last-message",
+      "/tmp/last.txt",
+      "-",
+    ]);
+  });
+
   describe("getCodexBin — platform 분기", () => {
     afterEach(() => {
       vi.restoreAllMocks();

@@ -1,4 +1,7 @@
 import crossSpawn from "cross-spawn";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import type { ChildProcess } from "child_process";
 import type { ClaudeEvent, ContentBlock } from "../../claude";
 import type { AIProviderAdapter, ProviderRunOptions, ProviderRunResult } from "../types";
@@ -25,7 +28,11 @@ export function buildCodexPrompt(prompt: string): string {
   return `${CODEX_PREAMBLE}\n\n--- USER TASK ---\n${prompt}`;
 }
 
-export function buildCodexExecArgs(cwd: string, imagePaths?: string[]): string[] {
+export function buildCodexExecArgs(
+  cwd: string,
+  imagePaths?: string[],
+  lastMessageFile?: string
+): string[] {
   const imageArgs: string[] = [];
   for (const imgPath of imagePaths ?? []) {
     imageArgs.push("--image", imgPath);
@@ -35,6 +42,11 @@ export function buildCodexExecArgs(cwd: string, imagePaths?: string[]): string[]
   // consume the trailing `-` (stdin marker) as another image path. Insert `--`
   // whenever images are present so `-` is unambiguously the positional argument.
   const separator = imageArgs.length > 0 ? ["--"] : [];
+
+  // `--output-last-message <FILE>`: codex writes the agent's final answer to this
+  // file. We use it as the authoritative result so we don't depend on the exact
+  // streaming-event schema of `--json` (which has changed across codex versions).
+  const lastMsgArgs = lastMessageFile ? ["--output-last-message", lastMessageFile] : [];
 
   // Codex 0.130+ removed `--ask-for-approval`; non-interactive `exec` no longer
   // prompts for approvals (TTY-less). Sandbox alone suffices for our purposes.
@@ -49,6 +61,7 @@ export function buildCodexExecArgs(cwd: string, imagePaths?: string[]): string[]
     cwd,
     "--sandbox",
     "danger-full-access",
+    ...lastMsgArgs,
     ...imageArgs,
     ...separator,
     "-",
@@ -66,6 +79,13 @@ export function parseCodexJsonLine(line: string): ClaudeEvent[] {
 
 function codexJsonToClaudeEvents(value: unknown): ClaudeEvent[] {
   if (!isRecord(value)) return [];
+
+  // `codex exec --json` (0.42.x) emits lifecycle/error events as `{ id, msg: {...} }`
+  // and the final answer as an `item.completed` (handled by the `item` branch below).
+  // Older/other modes use the flat shape further down. Handle all three.
+  if (isRecord(value.msg)) {
+    return codexMsgEvents(value.msg);
+  }
 
   if (isRecord(value.item)) {
     return codexJsonToClaudeEvents(value.item);
@@ -103,6 +123,38 @@ function codexJsonToClaudeEvents(value: unknown): ClaudeEvent[] {
   }
 
   return [];
+}
+
+/**
+ * Maps a single `codex exec --json` event payload (the `msg` object) to Claude
+ * events. Only message / command / error events carry signal we use; streaming
+ * deltas, reasoning, token counts and lifecycle pings are intentionally dropped.
+ *
+ *   agent_message            → assistant text (the model's answer)
+ *   exec_command_begin       → Bash tool_use (so output-file detection still works)
+ *   error / stream_error     → failed result (e.g. "Failed to refresh token: 401")
+ */
+function codexMsgEvents(msg: Record<string, unknown>): ClaudeEvent[] {
+  const type = stringValue(msg.type);
+  switch (type) {
+    case "agent_message": {
+      const text = stringValue(msg.message);
+      return text ? [assistantEvent([{ type: "text", text }])] : [];
+    }
+    case "exec_command_begin": {
+      const command = Array.isArray(msg.command)
+        ? msg.command.map((c) => stringValue(c)).join(" ")
+        : stringValue(msg.command);
+      return command ? [assistantEvent([{ type: "tool_use", name: "Bash", input: { command } }])] : [];
+    }
+    case "error":
+    case "stream_error":
+      return [{ type: "result", subtype: "error", result: stringValue(msg.message) || "Codex error" }];
+    default:
+      // agent_message_delta, agent_reasoning*, task_started, task_complete,
+      // token_count, exec_command_end, … → no actionable content.
+      return [];
+  }
 }
 
 function assistantEvent(content: ContentBlock[]): ClaudeEvent {
@@ -147,8 +199,20 @@ function stringValue(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
-async function* parseCodexStream(proc: ChildProcess, stderrChunks: string[]): AsyncIterable<ClaudeEvent> {
+function hasAssistantText(event: ClaudeEvent): boolean {
+  return (
+    event.type === "assistant" &&
+    !!event.message?.content.some((c) => c.type === "text" && !!c.text)
+  );
+}
+
+async function* parseCodexStream(
+  proc: ChildProcess,
+  stderrChunks: string[],
+  lastMessageFile?: string
+): AsyncIterable<ClaudeEvent> {
   let buffer = "";
+  let sawText = false;
 
   if (proc.stdout) {
     for await (const chunk of proc.stdout) {
@@ -157,13 +221,31 @@ async function* parseCodexStream(proc: ChildProcess, stderrChunks: string[]): As
       buffer = lines.pop() ?? "";
 
       for (const line of lines) {
-        yield* parseCodexJsonLine(line);
+        for (const event of parseCodexJsonLine(line)) {
+          if (hasAssistantText(event)) sawText = true;
+          yield event;
+        }
       }
     }
   }
 
   for (const event of parseCodexJsonLine(buffer)) {
+    if (hasAssistantText(event)) sawText = true;
     yield event;
+  }
+
+  // Fallback: if the event stream yielded no assistant text (e.g. the streaming
+  // schema differs), recover the answer from codex's --output-last-message file.
+  if (!sawText && lastMessageFile) {
+    try {
+      const last = fs.readFileSync(lastMessageFile, "utf8").trim();
+      if (last) yield assistantEvent([{ type: "text", text: last }]);
+    } catch {
+      // file absent (codex errored before writing) — nothing to recover
+    }
+  }
+  if (lastMessageFile) {
+    try { fs.unlinkSync(lastMessageFile); } catch { /* best-effort cleanup */ }
   }
 
   const stderr = stderrChunks.join("").trim();
@@ -186,7 +268,11 @@ export const codexCliProvider: AIProviderAdapter = {
   supportsTools: true,
   run(prompt: string, options?: ProviderRunOptions): ProviderRunResult {
     const cwd = options?.cwd ?? process.cwd();
-    const args = buildCodexExecArgs(cwd, options?.imagePaths);
+    const lastMessageFile = path.join(
+      os.tmpdir(),
+      `codex-last-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`
+    );
+    const args = buildCodexExecArgs(cwd, options?.imagePaths, lastMessageFile);
     const codexBin = getCodexBin();
     const fullPrompt = buildCodexPrompt(prompt);
     process.stderr.write(`[codex] spawn: ${codexBin} ${args.join(" ")} <PROMPT len=${fullPrompt.length} via stdin>\n`);
@@ -240,7 +326,7 @@ export const codexCliProvider: AIProviderAdapter = {
 
     return {
       process: proc,
-      events: parseCodexStream(proc, stderrChunks),
+      events: parseCodexStream(proc, stderrChunks, lastMessageFile),
       exitCode: new Promise<number>((resolve) => {
         proc.on("close", (code) => {
           if (timedOut) {
