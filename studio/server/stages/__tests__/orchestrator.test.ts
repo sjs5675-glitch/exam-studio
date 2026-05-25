@@ -277,6 +277,47 @@ describe("determineStartStage", () => {
     const result = await determineStartStage("auto", cache, [1]);
     expect(result.startStage).toBe("builder");
   });
+
+  it("auto-detects checker when build output HWPX exists on disk", async () => {
+    await mkdir(cache.paths.cacheDir, { recursive: true });
+    await writeFile(cache.extractorResultPath(1), JSON.stringify({ ok: true }), "utf8");
+    await writeFile(cache.solverResultPath(1), JSON.stringify({ ok: true }), "utf8");
+    await writeFile(cache.verifierResultPath(1), JSON.stringify({ ok: true }), "utf8");
+    await writeFile(cache.paths.figureStatus, JSON.stringify({ status: "done" }), "utf8");
+
+    const outputDir = path.join(tmpDir, "outputs");
+    await mkdir(outputDir, { recursive: true });
+    const hwpxPath = path.join(outputDir, "built_ver1.hwpx");
+    await writeFile(hwpxPath, "zip", "utf8");
+    await writeFile(
+      cache.paths.buildStatus,
+      JSON.stringify({ status: "completed", outputFile: hwpxPath }),
+      "utf8"
+    );
+
+    const result = await determineStartStage("auto", cache, [1]);
+    expect(result.startStage).toBe("checker");
+  });
+
+  it("falls back to builder when build_status is completed but the HWPX is missing", async () => {
+    // 산출물이 삭제/이동되면 checker가 ENOENT로 실패한다 → builder로 재실행해야 한다.
+    await mkdir(cache.paths.cacheDir, { recursive: true });
+    await writeFile(cache.extractorResultPath(1), JSON.stringify({ ok: true }), "utf8");
+    await writeFile(cache.solverResultPath(1), JSON.stringify({ ok: true }), "utf8");
+    await writeFile(cache.verifierResultPath(1), JSON.stringify({ ok: true }), "utf8");
+    await writeFile(cache.paths.figureStatus, JSON.stringify({ status: "done" }), "utf8");
+    await writeFile(
+      cache.paths.buildStatus,
+      JSON.stringify({
+        status: "completed",
+        outputFile: path.join(tmpDir, "outputs", "gone_ver1.hwpx"),
+      }),
+      "utf8"
+    );
+
+    const result = await determineStartStage("auto", cache, [1]);
+    expect(result.startStage).toBe("builder");
+  });
 });
 
 // ──────────────────────────────────────────────

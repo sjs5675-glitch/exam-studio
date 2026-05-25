@@ -1,4 +1,5 @@
-import { access } from "fs/promises";
+import { access, readFile } from "fs/promises";
+import path from "path";
 import type { StageCache } from "./cache";
 
 /**
@@ -162,13 +163,38 @@ async function detectFromCache(
   }
 
   // Check build_status.json for builder stage completion.
-  const hasBuildStatus = await fileExists(cache.paths.buildStatus);
-  if (!hasBuildStatus) {
+  // build_status가 없거나, 완료로 기록된 산출 HWPX가 실제로 디스크에 없으면
+  // builder를 다시 실행한다. (산출물이 삭제/이동된 채로 checker에 직행하면
+  // checker가 사라진 HWPX를 열다 ENOENT로 실패한다.)
+  const hasBuildOutput = await builderOutputExists(cache);
+  if (!hasBuildOutput) {
     return { startStage: "builder", targetQuestions: questionNumbers };
   }
 
   // Default: start from checker (or repeat if already done).
   return { startStage: "checker", targetQuestions: questionNumbers };
+}
+
+/**
+ * build_status.json이 완료 상태이고, 거기에 기록된 산출 HWPX 파일이 실제로
+ * 디스크에 존재하면 true. 파싱 실패·미완료·outputFile 누락·파일 부재 시 false →
+ * builder 단계를 다시 실행해야 한다.
+ */
+async function builderOutputExists(cache: StageCache): Promise<boolean> {
+  let parsed: { status?: string; outputFile?: string } | null;
+  try {
+    parsed = JSON.parse(await readFile(cache.paths.buildStatus, "utf8"));
+  } catch {
+    return false;
+  }
+  if (!parsed || parsed.status !== "completed" || !parsed.outputFile) return false;
+
+  // examDir = baseDir/inputs/시험지 제작 → baseDir는 두 단계 위.
+  const baseDir = path.resolve(cache.paths.examDir, "..", "..");
+  const outputPath = path.isAbsolute(parsed.outputFile)
+    ? parsed.outputFile
+    : path.join(baseDir, parsed.outputFile);
+  return fileExists(outputPath);
 }
 
 async function fileExists(filePath: string): Promise<boolean> {
