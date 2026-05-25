@@ -25,19 +25,23 @@ export function buildCodexPrompt(prompt: string): string {
   return `${CODEX_PREAMBLE}\n\n--- USER TASK ---\n${prompt}`;
 }
 
-export function buildCodexExecArgs(prompt: string, cwd: string, imagePaths?: string[]): string[] {
+export function buildCodexExecArgs(cwd: string, imagePaths?: string[]): string[] {
   const imageArgs: string[] = [];
   for (const imgPath of imagePaths ?? []) {
     imageArgs.push("--image", imgPath);
   }
 
   // `--image <FILE>...` is variadic; without a `--` terminator clap would greedily
-  // consume the trailing prompt as another image path. Insert `--` whenever images
-  // are present so the prompt is unambiguously the positional argument.
+  // consume the trailing `-` (stdin marker) as another image path. Insert `--`
+  // whenever images are present so `-` is unambiguously the positional argument.
   const separator = imageArgs.length > 0 ? ["--"] : [];
 
   // Codex 0.130+ removed `--ask-for-approval`; non-interactive `exec` no longer
   // prompts for approvals (TTY-less). Sandbox alone suffices for our purposes.
+  //
+  // 프롬프트는 positional `-` 로 stdin 에서 읽는다(codex exec 명세). 인자로 넘기면
+  // Windows 에서 cross-spawn 이 codex.cmd 를 cmd.exe 로 감싸 실행하는데, 큰 프롬프트가
+  // cmd.exe 명령줄 한도(8191자)를 넘어 잘린다(Mac/WSL 은 cmd.exe 미경유라 무관).
   return [
     "exec",
     "--json",
@@ -47,7 +51,7 @@ export function buildCodexExecArgs(prompt: string, cwd: string, imagePaths?: str
     "danger-full-access",
     ...imageArgs,
     ...separator,
-    buildCodexPrompt(prompt),
+    "-",
   ];
 }
 
@@ -182,14 +186,21 @@ export const codexCliProvider: AIProviderAdapter = {
   supportsTools: true,
   run(prompt: string, options?: ProviderRunOptions): ProviderRunResult {
     const cwd = options?.cwd ?? process.cwd();
-    const args = buildCodexExecArgs(prompt, cwd, options?.imagePaths);
+    const args = buildCodexExecArgs(cwd, options?.imagePaths);
     const codexBin = getCodexBin();
-    process.stderr.write(`[codex] spawn: ${codexBin} ${args.slice(0, args.length - 1).join(" ")} <PROMPT len=${prompt.length}>\n`);
+    const fullPrompt = buildCodexPrompt(prompt);
+    process.stderr.write(`[codex] spawn: ${codexBin} ${args.join(" ")} <PROMPT len=${fullPrompt.length} via stdin>\n`);
     const proc = crossSpawn(codexBin, args, {
       cwd,
       env: options?.env ? { ...process.env, ...options.env } : process.env,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"],
     });
+
+    // 프롬프트는 stdin 으로 전달(인자 길이 한도 회피, buildCodexExecArgs 참고).
+    // 자식이 조기 종료하면 write 가 EPIPE 를 낼 수 있어 무시한다.
+    proc.stdin?.on("error", () => {});
+    proc.stdin?.write(fullPrompt);
+    proc.stdin?.end();
 
     const stderrChunks: string[] = [];
     // spawn 실패(codex 미설치/PATH 누락 등)는 비동기 'error' 이벤트로 온다.

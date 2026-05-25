@@ -174,7 +174,7 @@ export function runClaude(
   options?: { maxTurns?: number; cwd?: string; env?: Record<string, string | undefined>; allowedTools?: string[] }
 ): { process: ChildProcess; events: AsyncIterable<ClaudeEvent>; exitCode: Promise<number> } {
   const claudeArgs = [
-    "-p", prompt,
+    "-p",
     "--output-format", "stream-json",
     "--verbose",
     "--dangerously-skip-permissions",
@@ -191,13 +191,20 @@ export function runClaude(
 
   // Windows: claude는 PATH상 claude.cmd shim이라 기본 spawn(shell:false)으로는
   // 못 찾거나(.cmd 미해석) EINVAL이 난다. cross-spawn이 .cmd/PATHEXT를 처리한다.
+  // 프롬프트는 stdin으로 전달한다(아래) — 인자로 넘기면 Windows에서 cross-spawn이
+  // claude.cmd를 cmd.exe로 감싸므로 큰 프롬프트가 cmd.exe 한도(8191자)를 넘어 잘린다.
   const proc = crossSpawn("claude", claudeArgs, {
     cwd,
     env,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
   });
 
   const stderrChunks: string[] = [];
+  // -p(print) 모드는 stdin(text)을 프롬프트로 읽는다. 자식 조기 종료 시 EPIPE 무시.
+  proc.stdin?.on("error", () => {});
+  proc.stdin?.write(prompt);
+  proc.stdin?.end();
+
   // spawn 실패(claude 미설치/PATH 누락 등)는 비동기 'error'로 온다. 핸들러가 없으면
   // 미처리 예외로 SSE 스트림이 끊겨 클라이언트가 불투명한 "network error"만 본다.
   proc.on("error", (err: Error) => {

@@ -8,20 +8,20 @@ import {
 } from "../ai/providers/codexCli";
 
 describe("Codex CLI provider", () => {
-  it("builds codex exec args with the expected sandbox policy", () => {
-    expect(buildCodexExecArgs("do work", "/repo")).toEqual([
+  it("builds codex exec args with the expected sandbox policy (prompt via stdin `-`)", () => {
+    expect(buildCodexExecArgs("/repo")).toEqual([
       "exec",
       "--json",
       "--cd",
       "/repo",
       "--sandbox",
       "danger-full-access",
-      buildCodexPrompt("do work"),
+      "-",
     ]);
   });
 
-  it("inserts a `--` separator before the prompt when images are attached", () => {
-    expect(buildCodexExecArgs("describe", "/repo", ["/tmp/q01.png"])).toEqual([
+  it("inserts a `--` separator before the stdin marker `-` when images are attached", () => {
+    expect(buildCodexExecArgs("/repo", ["/tmp/q01.png"])).toEqual([
       "exec",
       "--json",
       "--cd",
@@ -31,7 +31,7 @@ describe("Codex CLI provider", () => {
       "--image",
       "/tmp/q01.png",
       "--",
-      buildCodexPrompt("describe"),
+      "-",
     ]);
   });
 
