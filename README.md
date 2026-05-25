@@ -11,15 +11,34 @@ PDF에서 문제를 추출하고, 해설을 생성·검증하고, 그림을 처�
 
 ## 빠른 시작 (사람용)
 
-### macOS / Linux
+### 가장 쉬운 방법 — 부트스트랩 한 줄 ⭐
+
+터미널/PowerShell에 한 줄만 붙여넣으면 **clone → 의존성 설치 → AI CLI 설치·로그인**까지 자동으로 끝납니다.
+(Git 없으면 Windows는 자동 설치 안내, **Node 22+ 는 자동 설치**, Python 3.10+ 만 미리 필요)
+
+**macOS / Linux** (터미널):
 ```bash
-./install.sh                  # 1회: Node + Python 의존성 설치 (.venv 생성)
+curl -fsSL https://raw.githubusercontent.com/PNKmath/exam-studio/main/bootstrap.sh | bash
+```
+**Windows** (PowerShell):
+```powershell
+irm https://raw.githubusercontent.com/PNKmath/exam-studio/main/bootstrap.ps1 | iex
+```
+설치 폴더는 `~/exam-studio` (Windows `%USERPROFILE%\exam-studio`). 설치 후 실행은 아래 "실행" 참고.
+
+> Node를 새로 설치한 경우 PATH 반영을 위해 터미널/PowerShell을 새로 열고 한 줄을 다시 실행해야 할 수 있습니다.
+
+### 직접 설치 (이미 clone 한 경우)
+
+#### macOS / Linux
+```bash
+./install.sh                  # 1회: Node(22+)/Python 의존성 + AI CLI 선택설치·로그인
 ```
 실행 — 둘 중 하나를 **Finder 에서 더블클릭** (둘 다 http://localhost:3020 자동 오픈):
 - `start-background.command` — 백그라운드 실행 (창 닫아도 계속, 로그는 `.logs/`)
 - `start-logs.command` — 터미널 창에 **실시간 로그** 표시
 
-### Windows
+#### Windows
 1회 설치: `install.bat` **더블클릭**. 이후 실행 — 둘 중 하나를 더블클릭:
 - `start-background.vbs` — 백그라운드 실행 (콘솔 없이 브라우저 자동 오픈)
 - `start-logs.bat` — 로그 창을 띄워 **실시간 로그** 표시
@@ -27,9 +46,9 @@ PDF에서 문제를 추출하고, 해설을 생성·검증하고, 그림을 처�
 > 백그라운드 실행을 멈추려면: mac `lsof -ti tcp:3020 tcp:3021 | xargs kill`,
 > Windows 는 `start-logs.bat` 으로 한 번 실행 후 키 입력으로 종료하거나 작업 관리자에서 node 종료.
 
-설치 전 **Node.js 20+** 와 **Python 3.10+**, 그리고 **AI 제공자 CLI 하나**가 있어야 합니다
-— **Codex CLI 권장**, 또는 Claude Code CLI (기본값). pnpm 은 설치 스크립트가 자동으로 준비합니다.
-(Windows는 Python 설치 시 *Add Python to PATH* 체크.) AI 제공자는 아래 "설정" 참고.
+미리 필요한 건 **Python 3.10+** 뿐입니다 (Windows는 Python 설치 시 *Add Python to PATH* 체크).
+**Node.js(22+)·pnpm·AI 제공자 CLI**(**Codex 권장** / Claude Code)는 설치 스크립트가 자동으로 설치하고
+로그인 창까지 띄웁니다 — 로그인은 실패해도 설치는 완료되며, 앱이 배너로 후속 안내합니다. AI 제공자 상세는 아래 "설정" 참고.
 
 ---
 
@@ -40,7 +59,7 @@ PDF에서 문제를 추출하고, 해설을 생성·검증하고, 그림을 처�
 ### macOS / Linux
 ```bash
 # 1) 사전 요건 확인 (없으면 사용자에게 설치 요청)
-node -v        # v20 이상
+node -v        # v22 이상 (없거나 낮으면 install.sh 가 자동 설치)
 python3 --version   # 3.10 이상
 
 # 2) 설치 (Node 의존성 + .venv 파이썬 의존성)
