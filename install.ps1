@@ -72,11 +72,31 @@ Say "pnpm $(pnpm -v)"
 
 # --- Node deps -------------------------------------------------------------
 Say "Node 의존성 설치 중 (studio/)..."
+$nm      = Join-Path $Studio "node_modules"
+$nextCmd = Join-Path $nm ".bin\next.cmd"
+# WSL/Unix 에이전트 세션에서 Windows 체크아웃에 설치된 node_modules 는 POSIX shim(/mnt/c…)만 있고
+# Windows 용 .cmd shim 이 없다 → start-logs.bat 의 next.CMD 검사 실패("의존성 미설치").
+# 이 상태에서 `pnpm install` 은 modules 폴더를 purge 후 재설치하려 하지만,
+#   (1) 설치창은 TTY 가 없어 ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY 로 중단되고,
+#   (2) purge 를 허용해도 WSL 심링크(LX reparse)는 pnpm 이 lstat/삭제 못해 EACCES 로 실패한다.
+# → Windows shim 부재로 "외래 node_modules" 를 판정하고 cmd 의 rmdir 로 선제 제거한다
+#   (rmdir /s /q 는 LX 심링크도 안전 삭제. Remove-Item 은 EACCES 로 실패하므로 쓰지 않는다).
+if ((Test-Path $nm) -and -not (Test-Path $nextCmd)) {
+  Warn "기존 node_modules 에 Windows shim(.bin\next.cmd)이 없습니다 (WSL/Unix 설치로 추정) — 제거 후 새로 설치합니다."
+  & cmd.exe /c "rmdir /s /q `"$nm`"" 2>&1 | Out-Host
+}
 Push-Location $Studio
 try {
-  pnpm install --frozen-lockfile
-  if ($LASTEXITCODE -ne 0) { pnpm install }
+  # confirmModulesPurge=false: 비대화형(설치창)에서 modules 정리가 TTY 부재로 중단되지 않게 한다.
+  pnpm install --frozen-lockfile --config.confirmModulesPurge=false
+  if ($LASTEXITCODE -ne 0) { pnpm install --config.confirmModulesPurge=false }
 } finally { Pop-Location }
+# 설치 검증 — next.cmd 가 있어야 start-logs.bat / start-background 가 기동된다.
+# (구버전은 pnpm install 실패를 무시하고 "설치 완료" 로 끝나, 사용자가 끝없이 "의존성 미설치" 를 만났다.)
+if (-not (Test-Path $nextCmd)) {
+  Die "의존성 설치가 완료되지 않았습니다 (node_modules\.bin\next.cmd 없음). 위 pnpm 로그를 확인한 뒤 다시 실행하세요."
+}
+Say "Node 의존성 OK"
 
 # --- Python (>=3.10 보장) --------------------------------------------------
 # 단순 존재(Get-Command)로는 부족하다:
