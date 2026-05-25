@@ -197,3 +197,12 @@ Write-Host "============================================"
 Write-Host "  실행(백그라운드): start-background.vbs 더블클릭"; Write-Host "  실행(로그):       start-logs.bat 더블클릭"
 Write-Host "  웹:     http://localhost:3020"
 Write-Host ""
+
+# 사용자가 바로 더블클릭할 수 있도록 탐색기로 폴더를 열고 start-background.vbs 를 선택해 둔다.
+$launcher = Join-Path $Root "start-background.vbs"
+if (Test-Path $launcher) {
+  Write-Host "  -> 탐색기에서 start-background.vbs 를 선택해 열었습니다. 더블클릭해 실행하세요." -ForegroundColor Green
+  Start-Process explorer.exe -ArgumentList "/select,`"$launcher`""
+} else {
+  Start-Process explorer.exe -ArgumentList "`"$Root`""
+}
