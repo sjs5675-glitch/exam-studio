@@ -24,6 +24,30 @@ export async function exists(p: string): Promise<boolean> {
 }
 
 /**
+ * Windows-safe directory rename.
+ *
+ * Windows MoveFile 은 폴더나 그 안의 파일에 열린 핸들이 하나라도 있으면
+ * EPERM/EACCES/EBUSY 로 실패한다(백신 실시간 검사, 탐색기 창, 직전 작업의 잔존
+ * codex/python 프로세스 등). 이 잠금은 대개 찰나라 짧게 재시도하면 통과한다.
+ * POSIX(macOS/Linux)는 파일이 열려 있어도 폴더 rename 이 성공하므로 1회차에서
+ * 끝나고 재시도 경로를 타지 않는다(no-op). 전이성 코드가 아니면 즉시 throw 해
+ * 양쪽 OS 에서 진짜 오류는 그대로 표면화한다.
+ */
+async function renameWithRetry(from: string, to: string, attempts = 6): Promise<void> {
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      await rename(from, to);
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      const transient = code === "EPERM" || code === "EACCES" || code === "EBUSY" || code === "ENOTEMPTY";
+      if (!transient || i === attempts - 1) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 150 * (i + 1))); // 150,300,…,750ms
+    }
+  }
+}
+
+/**
  * 신규 시험지 작업 시작 — 단일 트랜잭션:
  *   1. .v3cache.next_<txid> / question_images.next_<txid> 임시 디렉터리에 새 상태 완성
  *   2. 모든 파일 검증 완료 후 transaction lock을 잡고 final path를 짧은 rename window에서 교체
@@ -155,21 +179,30 @@ export async function POST(req: NextRequest) {
   try {
     await writeFile(LOCK_PATH, JSON.stringify({ txid, startedAt: new Date().toISOString() }), "utf-8");
     if (await exists(CACHE_DIR)) {
-      await rename(CACHE_DIR, oldCacheDir);
+      await renameWithRetry(CACHE_DIR, oldCacheDir);
       oldCacheMoved = true;
     }
     if (await exists(IMAGES_DIR)) {
-      await rename(IMAGES_DIR, oldImagesDir);
+      await renameWithRetry(IMAGES_DIR, oldImagesDir);
       oldImagesMoved = true;
     }
-    await rename(nextCacheDir, CACHE_DIR);
+    await renameWithRetry(nextCacheDir, CACHE_DIR);
     newCacheCommitted = true;
-    await rename(nextImagesDir, IMAGES_DIR);
+    await renameWithRetry(nextImagesDir, IMAGES_DIR);
     newImagesCommitted = true;
 
-    // old cache 삭제 (백업 없음)
-    if (await exists(oldCacheDir)) await rm(oldCacheDir, { recursive: true, force: true });
-    if (await exists(oldImagesDir)) await rm(oldImagesDir, { recursive: true, force: true });
+    // old cache/images 삭제 — commit 은 이미 끝났으므로 best-effort. 잠겨서 못 지워도
+    // 정상 commit 을 rollback 하지 않는다(다음 작업 시 새 txid 로 다시 시도/누적 정리).
+    try {
+      if (await exists(oldCacheDir)) await rm(oldCacheDir, { recursive: true, force: true });
+      if (await exists(oldImagesDir)) await rm(oldImagesDir, { recursive: true, force: true });
+    } catch (oldCleanupErr) {
+      console.warn(
+        `[create/start] old dir cleanup failed (commit kept): ${
+          oldCleanupErr instanceof Error ? oldCleanupErr.message : String(oldCleanupErr)
+        }`
+      );
+    }
 
     // outputs/images/ 클리어 + 재생성 (derivable artifact 갱신). 실패해도 입력 commit은 유지한다.
     try {
@@ -196,9 +229,9 @@ export async function POST(req: NextRequest) {
         await rm(IMAGES_DIR, { recursive: true, force: true });
       }
       if (oldCacheMoved && (await exists(oldCacheDir)))
-        await rename(oldCacheDir, CACHE_DIR);
+        await renameWithRetry(oldCacheDir, CACHE_DIR);
       if (oldImagesMoved && (await exists(oldImagesDir)))
-        await rename(oldImagesDir, IMAGES_DIR);
+        await renameWithRetry(oldImagesDir, IMAGES_DIR);
       await rm(nextCacheDir, { recursive: true, force: true });
       await rm(nextImagesDir, { recursive: true, force: true });
       await rm(LOCK_PATH, { force: true }).catch(() => {});
