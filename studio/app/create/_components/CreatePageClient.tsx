@@ -374,6 +374,9 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
       } catch (e) {
         setSubmitError(e instanceof Error ? e.message : "작업 시작 실패");
         setRecoveryHint("이미지/메타 모두 저장됐습니다. 페이지를 새로고침하면 '이전 작업 재개' 카드에서 이어 작업할 수 있습니다.");
+      } finally {
+        // 성공 경로에서도 submitting을 풀어야 한다. 안 풀면 작업 완료 후 "새 작업"으로
+        // hasJob이 false가 됐을 때 PDF 열기/작업 재개 버튼이 disabled={submitting}으로 묶인다.
         setSubmitting(false);
       }
     },
