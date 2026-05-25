@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi, afterEach } from "vitest";
 import { transformToSSE } from "../claude";
 import {
   buildCodexExecArgs,
   buildCodexPrompt,
   parseCodexJsonLine,
+  getCodexBin,
 } from "../ai/providers/codexCli";
 
 describe("Codex CLI provider", () => {
@@ -99,5 +100,21 @@ describe("Codex CLI provider", () => {
 
   it("ignores malformed JSONL lines", () => {
     expect(parseCodexJsonLine("{not json")).toEqual([]);
+  });
+
+  describe("getCodexBin — platform 분기", () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("macOS/Linux에서는 'codex'를 반환한다", () => {
+      vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
+      expect(getCodexBin()).toBe("codex");
+    });
+
+    it("Windows에서는 'codex.cmd'를 반환한다", () => {
+      vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+      expect(getCodexBin()).toBe("codex.cmd");
+    });
   });
 });

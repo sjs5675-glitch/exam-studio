@@ -2,6 +2,16 @@ import { spawn, type ChildProcess } from "child_process";
 import type { ClaudeEvent, ContentBlock } from "../../claude";
 import type { AIProviderAdapter, ProviderRunOptions, ProviderRunResult } from "../types";
 
+/**
+ * Windows: npm 전역 설치 시 PATH에 놓이는 것은 codex.cmd shim이며,
+ * shell:false(기본)일 때 Node spawn은 .cmd를 직접 실행하지 못해 ENOENT가 발생함.
+ * → win32에서만 "codex.cmd"를 반환해 shell:false를 유지한다.
+ * macOS/Linux는 현행 "codex" 그대로.
+ */
+export function getCodexBin(): string {
+  return process.platform === "win32" ? "codex.cmd" : "codex";
+}
+
 const CODEX_PREAMBLE = [
   "You are running inside studio as an alternate AI provider.",
   "Reuse the existing .claude/skills and .claude/agents workflow files when they are relevant.",
@@ -171,8 +181,9 @@ export const codexCliProvider: AIProviderAdapter = {
   run(prompt: string, options?: ProviderRunOptions): ProviderRunResult {
     const cwd = options?.cwd ?? process.cwd();
     const args = buildCodexExecArgs(prompt, cwd, options?.imagePaths);
-    process.stderr.write(`[codex] spawn: codex ${args.slice(0, args.length - 1).join(" ")} <PROMPT len=${prompt.length}>\n`);
-    const proc = spawn("codex", args, {
+    const codexBin = getCodexBin();
+    process.stderr.write(`[codex] spawn: ${codexBin} ${args.slice(0, args.length - 1).join(" ")} <PROMPT len=${prompt.length}>\n`);
+    const proc = spawn(codexBin, args, {
       cwd,
       env: options?.env ? { ...process.env, ...options.env } : process.env,
       stdio: ["ignore", "pipe", "pipe"],
@@ -185,7 +196,6 @@ export const codexCliProvider: AIProviderAdapter = {
       stderrChunks.push(s);
       process.stderr.write(`[codex stderr pid=${proc.pid}] ${s}`);
     });
-    proc.stdout?.on("data", () => { /* idle-timer reset handled by activity below */ });
 
     // Idle-timeout: if no stdout/stderr activity for N ms, kill the process.
     let lastActivity = Date.now();
