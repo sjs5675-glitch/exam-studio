@@ -27,8 +27,9 @@ PDF에서 문제를 추출하고, 해설을 생성·검증하고, 그림을 처�
 > 백그라운드 실행을 멈추려면: mac `lsof -ti tcp:3020 tcp:3021 | xargs kill`,
 > Windows 는 `start-logs.bat` 으로 한 번 실행 후 키 입력으로 종료하거나 작업 관리자에서 node 종료.
 
-설치 전 **Node.js 20+** 와 **Python 3.10+** 가 설치돼 있어야 합니다
-(Windows는 Python 설치 시 *Add Python to PATH* 체크). pnpm 은 설치 스크립트가 자동으로 준비합니다.
+설치 전 **Node.js 20+** 와 **Python 3.10+**, 그리고 **AI 제공자 CLI 하나**가 있어야 합니다
+— **Codex CLI 권장**, 또는 Claude Code CLI (기본값). pnpm 은 설치 스크립트가 자동으로 준비합니다.
+(Windows는 Python 설치 시 *Add Python to PATH* 체크.) AI 제공자는 아래 "설정" 참고.
 
 ---
 
@@ -45,9 +46,10 @@ python3 --version   # 3.10 이상
 # 2) 설치 (Node 의존성 + .venv 파이썬 의존성)
 chmod +x install.sh && ./install.sh
 
-# 3) (선택) API 키 입력 — Gemini 그림 처리 / DeepSeek 사용 시
-#    studio/.env 의 GEMINI_API_KEY, DEEPSEEK_API_KEY 를 채운다.
-#    Claude CLI 구독자는 키 없이 legacy 흐름 사용 가능('claude' CLI 필요).
+# 3) AI 제공자 준비 — 추출/해설 단계 실행에 필요 (둘 중 하나)
+#    - Codex CLI (권장): `codex` 설치 + 인증 → /settings 에서 provider를 Codex CLI로
+#    - Claude Code CLI (기본): `claude` 설치 + 로그인 (별도 설정 없이 동작)
+#    (선택) 그림 처리: studio/.env 의 GEMINI_API_KEY. API키 provider(OpenAI/DeepSeek)도 /settings 지정 가능.
 
 # 4) 실행 (백그라운드로 띄우고 검증)
 ( cd studio && export PATH="$PWD/../.venv/bin:$PATH" && pnpm dev:sse & )
@@ -83,9 +85,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 | `HWPX_TEMPLATE_PATH` | 공통 양식지 HWPX 경로 (비우면 업로드 파일 사용) | 선택 |
 | `NEXT_PUBLIC_SSE_URL` | SSE 서버 URL (기본 `http://localhost:3021`) | — |
 
-**AI 제공자**: 시험지 제작의 추출/해설 단계는 다음 중 하나가 필요합니다.
-- `claude` CLI 설치 + 로그인 (legacy 흐름, 추가 과금 없음), 또는
-- API 키 기반 provider (DeepSeek 등) — `/settings` 에서 stage 별 지정.
+**AI 제공자** (추출/해설/검증 단계 실행): 모든 단계는 코드 orchestrator(`runStageOrchestrator`)가 결정론적으로 실행하며, 단계별 provider를 `/settings` 에서 지정합니다. 다음 중 하나가 필요합니다.
+- **Codex CLI** (권장): `codex` 설치 + 인증. 구독으로 추가 토큰 과금 없이 사용. `/settings` 에서 provider를 Codex CLI로 지정.
+- **Claude Code CLI** (기본값 `auto`): `claude` 설치 + 로그인. 별도 설정 없이 동작.
+- API 키 provider: Claude SDK(`ANTHROPIC_API_KEY`) / OpenAI SDK(`OPENAI_API_KEY`) / DeepSeek(`DEEPSEEK_API_KEY`) — `/settings` 에서 stage별 지정.
 
 ---
 

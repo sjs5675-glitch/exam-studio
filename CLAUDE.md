@@ -110,11 +110,12 @@ outputs/           완성된 HWPX + images/ (생성 그림)
     [6] exam-checker : HWPX 품질 검수 → 피드백 루프
   ```
 
-### 신규 흐름 vs legacy 흐름
+### 실행 흐름 (단일 코드 orchestrator)
 
-- **신규 흐름 (코드 기반 orchestrator)**: `studio/server/stages/orchestrator.ts` (`runStageOrchestrator`)가 stage들을 결정론적으로 실행. `/settings`에서 `create.*` stage override가 하나라도 지정되면 자동 선택 (`shouldUseCodeOrchestrator`).
-- **legacy 흐름 (Claude CLI + skill)**: `/settings`에서 create.* stage override 미지정 또는 `auto` provider일 때 기존 `runLegacyPromptJob` → `exam-create` 스킬 경로. Claude CLI 구독자는 이 경로로 토큰 추가 과금 없이 사용 가능.
-- **선택 기준**: `/settings` 페이지에서 create.extractor / create.solver / create.verifier 등 stage override 지정 여부. 하나라도 지정 시 → 신규 TS orchestrator; 미지정(또는 전부 `auto`) 시 → legacy Claude CLI 경로.
+- 모든 작업은 `studio/server/stages/orchestrator.ts` (`runStageOrchestrator`)가 stage들을 결정론적으로 실행한다. (구버전의 Claude-CLI-skill "legacy 흐름"은 제거됨 — orchestrator 단일 경로.)
+- 각 stage의 프롬프트는 `studio/server/stages/prompts/*.ts`(extractor/solver/verifier 등)에서 생성되고, `/settings`에서 지정한 **provider**로 실행된다.
+- **provider**: `auto`(기본=Claude Code CLI) / `claude-cli`(Claude Code) / `codex-cli`(Codex, **권장**) / `claude-sdk`(ANTHROPIC_API_KEY) / `openai-sdk`(OPENAI_API_KEY) / `deepseek-v4`(DEEPSEEK_API_KEY). stage별 override는 `/settings`에서 지정.
+- `.claude/skills`·`.claude/agents`는 프롬프트의 출처 참조(문서)이며, 런타임 파이프라인은 위 TS 프롬프트를 사용한다. (예외: cropper는 `exam-crop` 스킬 사용.)
 
 ## HWPX 포맷
 

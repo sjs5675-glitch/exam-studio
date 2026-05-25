@@ -60,8 +60,12 @@ if [ ! -f "$STUDIO/.env" ]; then
 fi
 
 # --- AI provider hint ------------------------------------------------------
-if ! command -v claude >/dev/null 2>&1; then
-  warn "Claude CLI 미설치 — legacy 흐름을 쓰려면 'claude' CLI 설치 또는 studio/.env 에 API 키 설정이 필요합니다."
+if command -v codex >/dev/null 2>&1; then
+  say "Codex CLI 감지 (권장 provider)"
+elif command -v claude >/dev/null 2>&1; then
+  say "Claude Code CLI 감지"
+else
+  warn "AI 제공자 CLI 미설치 — Codex CLI(권장) 또는 Claude Code CLI 설치, 또는 studio/.env 에 API 키(OpenAI/DeepSeek/Anthropic) 설정 필요. /settings 에서 provider 지정."
 fi
 
 echo ""

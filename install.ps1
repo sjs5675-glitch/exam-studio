@@ -69,8 +69,12 @@ if (-not (Test-Path $envFile)) {
 }
 
 # --- AI provider hint ------------------------------------------------------
-if (-not (Get-Command claude -ErrorAction SilentlyContinue)) {
-  Warn "Claude CLI 미설치 - legacy 흐름을 쓰려면 'claude' CLI 설치 또는 studio\.env 에 API 키 설정이 필요합니다."
+if (Get-Command codex -ErrorAction SilentlyContinue) {
+  Say "Codex CLI 감지 (권장 provider)"
+} elseif (Get-Command claude -ErrorAction SilentlyContinue) {
+  Say "Claude Code CLI 감지"
+} else {
+  Warn "AI 제공자 CLI 미설치 - Codex CLI(권장) 또는 Claude Code CLI 설치, 또는 studio\.env 에 API 키 설정 필요. /settings 에서 provider 지정."
 }
 
 Write-Host ""

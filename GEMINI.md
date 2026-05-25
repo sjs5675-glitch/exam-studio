@@ -7,7 +7,7 @@ Exam Studio is a workflow platform for creating mathematical exam papers in the 
 - **Core Purpose:** Automate the extraction of math problems from PDFs, generate solutions/explanations, process geometric figures, and assemble high-quality HWPX documents.
 - **Main Technologies:**
     - **Frontend/Orchestrator:** Next.js (TypeScript), React, Tailwind CSS, Zustand.
-    - **Agents:** Claude CLI (via `stream-json`), Gemini (for figure processing).
+    - **AI providers (stage 실행):** Codex CLI (권장) / Claude Code CLI / Claude·OpenAI SDK / DeepSeek — `/settings` 에서 지정. Gemini (그림 처리).
     - **Document Engine:** Custom Python scripts (`build_hwpx.py`, `fix_namespaces.py`, `validate.py`) for ZIP-level XML manipulation of HWPX files.
     - **PDF Processing:** PyMuPDF (`fitz`) for image extraction and layout analysis.
 
@@ -39,7 +39,7 @@ Exam Studio is a workflow platform for creating mathematical exam papers in the 
 - Node.js (>= 20)
 - pnpm
 - Python 3.10+ (`pip install -r requirements.txt`)
-- An AI provider: Claude CLI (authenticated) or an API key (see `.env.example`)
+- An AI provider CLI: **Codex CLI (recommended)** or Claude Code CLI — or an API key provider (Claude/OpenAI/DeepSeek SDK, see `.env.example`)
 
 ### Key Commands
 Run these from the `studio/` directory:
