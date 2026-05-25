@@ -1,10 +1,19 @@
-# Exam Studio - dependency installer (Windows / PowerShell)
+﻿# Exam Studio - dependency installer (Windows / PowerShell)
 #
 #   Double-click install.bat  (or:  powershell -ExecutionPolicy Bypass -File install.ps1)
 #
 # Installs Node dependencies (pnpm) and Python dependencies (.venv).
-# After this, double-click "Exam Studio.vbs" to launch.
+# After this, double-click start-background.vbs (or start-logs.bat) to launch.
 $ErrorActionPreference = "Stop"
+
+# 콘솔/자식 프로세스 출력 UTF-8 (Windows CP949 한글 깨짐 방지)
+try { chcp 65001 > $null } catch {}
+try {
+  [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+  $OutputEncoding = [System.Text.Encoding]::UTF8
+} catch {}
+$env:PYTHONUTF8 = "1"
+$env:PYTHONIOENCODING = "utf-8"
 
 $Root   = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Studio = Join-Path $Root "studio"

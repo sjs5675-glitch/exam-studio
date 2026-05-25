@@ -80,6 +80,7 @@ print(json.dumps({"width": pix.width, "height": pix.height, "pages": len(doc)}))
     try {
       const result = await execFileAsync(pythonCmd, ["-c", script, args], {
         timeout: 15000,
+        env: { ...process.env, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" },
       });
       stdout = result.stdout;
     } catch (err) {

@@ -36,7 +36,13 @@ export async function runStageCommand(options: StageCommandOptions): Promise<Sta
 
     const child = spawn(options.command, args, {
       cwd: options.cwd,
-      env: options.env ? { ...process.env, ...options.env } : process.env,
+      // Force Python UTF-8 mode so Korean stdout/paths don't garble on Windows (CP949 default).
+      env: {
+        ...process.env,
+        PYTHONUTF8: "1",
+        PYTHONIOENCODING: "utf-8",
+        ...(options.env ?? {}),
+      },
       stdio: ["ignore", "pipe", "pipe"],
     });
 

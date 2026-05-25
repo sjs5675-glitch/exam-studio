@@ -1,4 +1,7 @@
 @echo off
+chcp 65001 >nul
+set "PYTHONUTF8=1"
+set "PYTHONIOENCODING=utf-8"
 title Exam Studio (logs)
 cd /d "%~dp0studio"
 
@@ -24,12 +27,12 @@ REM 기존 포트 정리
 for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr ":3020" ^| findstr "LISTENING"') do taskkill /pid %%a /f >nul 2>nul
 for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr ":3021 " ^| findstr "LISTENING"') do taskkill /pid %%a /f >nul 2>nul
 
-REM 로그가 보이도록 별도 창(최소화 안 함)으로 실행
+REM 로그가 보이도록 별도 창(최소화 안 함)으로 실행. 각 창도 UTF-8(chcp 65001) + PYTHONUTF8 설정.
 echo [1/2] SSE 서버 (port 3021) - 별도 창에 로그 표시
-start "Exam Studio - SSE log" cmd /k "cd /d %~dp0studio && set PATH=%~dp0.venv\Scripts;%PATH% && call pnpm.cmd dev:sse"
+start "Exam Studio - SSE log" cmd /k "chcp 65001 >nul && set PYTHONUTF8=1 && set PYTHONIOENCODING=utf-8 && cd /d %~dp0studio && set PATH=%~dp0.venv\Scripts;%PATH% && call pnpm.cmd dev:sse"
 
 echo [2/2] Next.js (port 3020) - 별도 창에 로그 표시
-start "Exam Studio - Next log" cmd /k "cd /d %~dp0studio && set PATH=%~dp0.venv\Scripts;%PATH% && call pnpm.cmd dev"
+start "Exam Studio - Next log" cmd /k "chcp 65001 >nul && set PYTHONUTF8=1 && set PYTHONIOENCODING=utf-8 && cd /d %~dp0studio && set PATH=%~dp0.venv\Scripts;%PATH% && call pnpm.cmd dev"
 
 echo.
 echo 서버 준비 대기 중...
