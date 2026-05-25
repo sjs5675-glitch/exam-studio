@@ -992,20 +992,20 @@ describe("orchestrator stage provider routing", () => {
     expect(verifierAdapter.id).toBe("codex-cli");
   }, 5_000);
 
-  // ── (J) defaultProvider: auto → all stages resolve to claude-cli (auto resolve)
-  it("(J) defaultProvider: auto + empty stageOverrides → all stages resolve to claude-cli", async () => {
+  // ── (J) defaultProvider: auto → all stages resolve to codex-cli (auto resolve)
+  it("(J) defaultProvider: auto + empty stageOverrides → all stages resolve to codex-cli", async () => {
     const { getProviderAdapter } = await import("@/lib/ai/registry");
 
     // Simulate getProviderForStage(stageKey, {}, "auto"):
-    // overrides[stageKey] is undefined → falls back to "auto" → resolves to claude-cli
+    // overrides[stageKey] is undefined → falls back to "auto" → resolves to codex-cli
     const emptyOverrides: Record<string, string> = {};
     const defaultProvider = "auto";
 
     for (const stageKey of ["create.extractor", "create.solver", "create.verifier"] as const) {
       const id = emptyOverrides[stageKey] ?? defaultProvider;
       const adapter = getProviderAdapter(id as Parameters<typeof getProviderAdapter>[0]);
-      // "auto" resolves to "claude-cli" via getProviderAdapter
-      expect(adapter.id).toBe("claude-cli");
+      // "auto" resolves to "codex-cli" via getProviderAdapter
+      expect(adapter.id).toBe("codex-cli");
     }
   }, 5_000);
 });

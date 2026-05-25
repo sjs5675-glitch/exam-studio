@@ -52,7 +52,8 @@ export function normalizeProviderId(provider: unknown): AIProviderId {
 }
 
 export function resolveProviderId(provider: AIProviderId = "auto"): ResolvedAIProviderId {
-  if (provider === "auto") return "claude-cli";
+  // "auto"는 권장 기본 엔진인 codex-cli 로 해석한다(DEFAULT_AI_SETTINGS·preflight 와 일치).
+  if (provider === "auto") return "codex-cli";
   if (providers.has(provider as ResolvedAIProviderId)) return provider as ResolvedAIProviderId;
   throw new Error(`AI provider is not registered yet: ${provider}`);
 }

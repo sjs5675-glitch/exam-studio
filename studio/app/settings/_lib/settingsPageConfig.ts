@@ -16,14 +16,14 @@ export interface ProviderOption {
 export const providerOptions: ProviderOption[] = [
   {
     id: "auto",
-    label: "기본 (Claude Code CLI)",
-    detail: "Stage override 미지정 시 모든 stage를 Claude Code CLI로 실행합니다.",
-    resolved: "Claude CLI",
-    vision: "supported",
-    visionNote: "추출 단계 사용 가능",
-    authNote: "claude auth login 또는 ANTHROPIC_API_KEY",
+    label: "자동 (Codex CLI)",
+    detail: "Stage override 미지정 시 권장 기본 엔진인 Codex CLI로 실행합니다.",
+    resolved: "Codex CLI",
+    vision: "pending",
+    visionNote: "vision 지원 (Codex v0.115+)",
+    authNote: "codex 설치 및 인증 필요",
     requiredEnvKeys: [],
-    cliKey: "cli",
+    cliKey: "codexCli",
   },
   {
     id: "claude-cli",
@@ -48,8 +48,8 @@ export const providerOptions: ProviderOption[] = [
   },
   {
     id: "codex-cli",
-    label: "Codex CLI",
-    detail: "로컬 Codex CLI provider를 사용합니다.",
+    label: "Codex CLI (기본)",
+    detail: "로컬 Codex CLI provider를 사용합니다. 새 작업의 기본 엔진입니다.",
     resolved: "Codex CLI",
     vision: "pending",
     visionNote: "vision 지원 (Codex v0.115+)",

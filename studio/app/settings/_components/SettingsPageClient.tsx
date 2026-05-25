@@ -170,14 +170,14 @@ export default function SettingsPage() {
     // CLI providers
     if (option.cliKey) {
       const cliInfo = cliStatus[option.cliKey];
-      if (option.id === "auto" || option.id === "claude-cli") {
+      if (option.id === "claude-cli") {
         // OK if CLI is available OR ANTHROPIC_API_KEY is set
         const cliOk = cliInfo?.available ?? false;
         const sdkKeyOk = envStatus["ANTHROPIC_API_KEY"]?.configured ?? false;
         return !cliOk && !sdkKeyOk;
       }
-      if (option.id === "codex-cli") {
-        // codex는 설치(available)뿐 아니라 로그인(authenticated)까지 돼야 사용 가능.
+      if (option.id === "codex-cli" || option.id === "auto") {
+        // auto 는 codex-cli 로 해석되므로 codex 설치(available)+로그인(authenticated)으로 판정.
         return !((cliInfo?.available ?? false) && (cliInfo?.authenticated ?? false));
       }
     }

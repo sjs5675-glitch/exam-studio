@@ -12,9 +12,9 @@ import {
 } from "../ai";
 
 describe("AI provider registry", () => {
-  it("resolves auto to claude-cli for the initial provider rollout", () => {
-    expect(resolveProviderId()).toBe("claude-cli");
-    expect(resolveProviderId("auto")).toBe("claude-cli");
+  it("resolves auto to codex-cli (recommended default engine)", () => {
+    expect(resolveProviderId()).toBe("codex-cli");
+    expect(resolveProviderId("auto")).toBe("codex-cli");
   });
 
   it("normalizes missing provider requests to auto", () => {
@@ -33,8 +33,8 @@ describe("AI provider registry", () => {
     expect(normalizeProviderId("codex")).toBe("codex-cli");
   });
 
-  it("returns the Claude CLI adapter for auto and claude-cli", () => {
-    expect(getProviderAdapter("auto")).toBe(claudeCliProvider);
+  it("returns the Codex CLI adapter for auto, and Claude CLI for claude-cli", () => {
+    expect(getProviderAdapter("auto")).toBe(codexCliProvider);
     expect(getProviderAdapter("claude-cli")).toBe(claudeCliProvider);
   });
 
@@ -53,10 +53,10 @@ describe("AI provider registry", () => {
     expect(getProviderAdapter("openai-sdk")).toBe(openaiSdkProvider);
   });
 
-  it("registers DeepSeek V4 without changing auto fallback", () => {
+  it("registers DeepSeek V4 without changing auto resolution", () => {
     expect(resolveProviderId("deepseek-v4")).toBe("deepseek-v4");
     expect(getProviderAdapter("deepseek-v4")).toBe(deepseekV4Provider);
-    expect(resolveProviderId("auto")).toBe("claude-cli");
+    expect(resolveProviderId("auto")).toBe("codex-cli");
   });
 
   it("lists all currently registered provider adapters", () => {
