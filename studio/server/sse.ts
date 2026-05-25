@@ -11,7 +11,7 @@ import { fileURLToPath } from "url";
 
 // Import from relative paths (tsx doesn't support @/ alias)
 import type { ExamMetaInput } from "../lib/exam/meta";
-import { toWslPath, fromWslPath, transformToSSE, type SSEEvent } from "../lib/claude";
+import { transformToSSE, type SSEEvent } from "../lib/claude";
 import {
   normalizeProviderId,
   resolveProviderId,
@@ -364,16 +364,11 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     hwpx: files?.hwpx ?? HWPX_TEMPLATE,
   };
 
-  // Claude CLI는 WSL에서 실행되므로 파일 경로를 WSL 형식으로 변환
-  // 상대경로는 cwd(BASE_DIR) 기준이므로 절대경로로 만든 뒤 변환
-  const toAbsWsl = (p: string) => {
-    if (!p) return "";
-    const abs = path.isAbsolute(p) ? p : path.join(BASE_DIR, p);
-    return toWslPath(abs);
-  };
-  const wslFiles = {
-    pdf: toAbsWsl(resolvedFiles.pdf),
-    hwpx: toAbsWsl(resolvedFiles.hwpx),
+  // 상대경로는 cwd(BASE_DIR) 기준이므로 절대경로로 변환
+  const toAbs = (p: string) => (!p ? "" : path.isAbsolute(p) ? p : path.join(BASE_DIR, p));
+  const absFiles = {
+    pdf: toAbs(resolvedFiles.pdf),
+    hwpx: toAbs(resolvedFiles.hwpx),
   };
 
   // 문제별 이미지 경로 생성. resume 모드에서 클라이언트가 questionImages를 안 보낼 때
@@ -395,14 +390,14 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     const padded = String(num).padStart(2, "0");
     return {
       number: num,
-      path: toAbsWsl(path.join("inputs", "시험지 제작", "question_images", `q${padded}.png`)),
+      path: toAbs(path.join("inputs", "시험지 제작", "question_images", `q${padded}.png`)),
     };
   });
 
   let prompt: string = "";
   if (mode === "crop") {
-    const cropOutDir = toAbsWsl(path.join(BASE_DIR, "inputs", "시험지 제작", "question_images"));
-    prompt = buildCropPrompt(wslFiles.pdf, cropOutDir);
+    const cropOutDir = toAbs(path.join(BASE_DIR, "inputs", "시험지 제작", "question_images"));
+    prompt = buildCropPrompt(absFiles.pdf, cropOutDir);
   }
 
   // Save initial job data
@@ -534,8 +529,6 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
     // outputFile 경로를 상대경로로 정규화
     if (outputFile) {
-      // WSL 경로(/mnt/c/...)가 올 수 있으므로 Windows 경로로 변환
-      outputFile = fromWslPath(outputFile);
       // 절대경로면 BASE_DIR 기준 상대경로로 변환
       if (path.isAbsolute(outputFile)) {
         outputFile = path.relative(BASE_DIR, outputFile);
