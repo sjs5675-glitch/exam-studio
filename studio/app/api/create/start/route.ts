@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { mkdir, rm, rename, writeFile, stat } from "fs/promises";
 import path from "path";
 import type { ExamMetaInput } from "@/lib/exam/meta";
+import { preflightProviders } from "@/lib/ai/preflight";
+import { normalizeStageOverrides } from "@/lib/ai/settings";
+import type { AIProviderId } from "@/lib/ai/types";
 
 const BASE_DIR = path.resolve(process.cwd(), "..");
 const EXAM_DIR = path.join(BASE_DIR, "inputs", "시험지 제작");
@@ -9,6 +12,7 @@ const CACHE_DIR = path.join(EXAM_DIR, ".v3cache");
 const IMAGES_DIR = path.join(EXAM_DIR, "question_images");
 const OUTPUTS_IMAGES_DIR = path.join(BASE_DIR, "outputs", "images");
 export const LOCK_PATH = path.join(EXAM_DIR, ".create_start.lock");
+
 
 export async function exists(p: string): Promise<boolean> {
   try {
@@ -37,6 +41,8 @@ export async function POST(req: NextRequest) {
   // ── stage 1: parse + validate ──
   let meta: ExamMetaInput;
   const images: { key: string; file: File }[] = [];
+  let requestedProvider: AIProviderId = "auto";
+  let requestedStageOverrides = normalizeStageOverrides({});
   try {
     const formData = await req.formData();
     const metaStr = formData.get("meta");
@@ -44,8 +50,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "meta(JSON) 필드 필요" }, { status: 400 });
     }
     meta = JSON.parse(metaStr) as ExamMetaInput;
+
+    // 선택적 provider 필드 — 없으면 "auto" 기본값
+    const rawProvider = formData.get("provider");
+    const rawStageOverrides = formData.get("stageOverrides");
+    if (typeof rawProvider === "string" && rawProvider) {
+      requestedProvider = rawProvider as AIProviderId;
+    }
+    if (typeof rawStageOverrides === "string") {
+      try {
+        requestedStageOverrides = normalizeStageOverrides(JSON.parse(rawStageOverrides));
+      } catch {
+        // 파싱 실패 시 빈 override 유지
+      }
+    }
+
     for (const [key, value] of formData.entries()) {
-      if (key === "meta") continue;
+      if (key === "meta" || key === "provider" || key === "stageOverrides") continue;
       if (!(value instanceof File)) continue;
       images.push({ key, file: value });
     }
@@ -57,6 +78,17 @@ export async function POST(req: NextRequest) {
       { error: `request 파싱 실패: ${err instanceof Error ? err.message : String(err)}` },
       { status: 400 }
     );
+  }
+
+  // ── preflight: provider 설치+인증 사전점검 ──
+  {
+    const preflight = preflightProviders(requestedProvider, requestedStageOverrides);
+    if (!preflight.ok) {
+      return NextResponse.json(
+        { error: preflight.error, hint: preflight.hint, code: "provider_not_ready" },
+        { status: 400 }
+      );
+    }
   }
 
   // ── stage 2: write fresh state into temp dirs (final path untouched) ──
