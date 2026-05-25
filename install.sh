@@ -49,13 +49,14 @@ fi
 say "Node $(node -v)"
 
 # --- pnpm ------------------------------------------------------------------
+# corepack enable 은 shim 을 Node 설치 폴더(.pkg → /usr/local/bin, root 소유)에
+# 쓰므로 sudo 없이는 EACCES 로 실패할 수 있다. npm 전역 설치는 사용자 prefix 로
+# 가므로 권한 문제 없이 동작한다.
 if ! command -v pnpm >/dev/null 2>&1; then
-  say "pnpm 설치 중..."
-  if command -v corepack >/dev/null 2>&1; then
-    corepack enable && corepack prepare pnpm@latest --activate
-  else
-    npm install -g pnpm
-  fi
+  say "pnpm 설치 중 (npm i -g pnpm)..."
+  npm install -g pnpm
+  hash -r 2>/dev/null || true
+  command -v pnpm >/dev/null 2>&1 || die "pnpm 설치 실패. 'npm install -g pnpm' 를 수동 실행하거나 https://pnpm.io/installation 을 참고하세요."
 fi
 say "pnpm $(pnpm -v)"
 

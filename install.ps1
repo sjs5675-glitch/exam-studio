@@ -55,13 +55,17 @@ if ($nodeMajor -lt 22) {
 Say "Node $(node -v)"
 
 # --- pnpm ------------------------------------------------------------------
+# corepack enable 은 shim 을 Node 설치 폴더(C:\Program Files\nodejs)에 쓰므로
+# 관리자 권한이 없으면 EPERM 으로 실패한다. npm 전역 설치는 %AppData%\npm
+# (사용자 쓰기 가능)로 가므로 권한 문제 없이 동작한다.
 if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
-  Say "pnpm 설치 중..."
-  if (Get-Command corepack -ErrorAction SilentlyContinue) {
-    corepack enable
-    corepack prepare pnpm@latest --activate
-  } else {
-    npm install -g pnpm
+  Say "pnpm 설치 중 (npm i -g pnpm)..."
+  npm install -g pnpm
+  # 방금 설치한 pnpm 을 현재 세션이 인식하도록 %AppData%\npm 을 PATH 에 반영
+  $npmGlobal = Join-Path $env:APPDATA "npm"
+  if (($env:Path -split ';') -notcontains $npmGlobal) { $env:Path = "$npmGlobal;$env:Path" }
+  if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
+    Die "pnpm 설치 실패. 'npm install -g pnpm' 를 수동 실행하거나 https://pnpm.io/installation 을 참고하세요."
   }
 }
 Say "pnpm $(pnpm -v)"

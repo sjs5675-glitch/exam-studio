@@ -138,3 +138,30 @@ VERDICT pass — F(보안: HTTPS .pkg, pipe-to-bash 미사용, 비밀값 없음,
 
 #### Commit
 2ebe1e3
+
+### 2회차 (2026-05-25 — KST) — pnpm corepack EPERM 수정
+
+**상태**: completed
+**진행 모델**: claude-opus-4-7
+**트리거**: Windows 실기 스모크 중 pnpm 설치 단계 실패 보고.
+
+#### 증상
+```
+> pnpm 설치 중...
+Internal Error: EPERM: operation not permitted, open 'C:\Program Files\nodejs\pnpm'
+Preparing pnpm@latest for immediate activation...
+pnpm : 'pnpm' 용어가 ... 인식되지 않습니다 (install.ps1:67  Say "pnpm $(pnpm -v)")
+```
+
+#### 원인
+- `corepack enable` 은 pnpm/yarn **shim 을 Node 설치 폴더 안**에 쓴다. winget(공식 MSI) Node 는 `C:\Program Files\nodejs` 에 설치되므로 비관리자 권한에선 `EPERM` 으로 shim 생성 실패 → 이후 `pnpm -v` 가 "용어 인식 불가".
+- `$ErrorActionPreference = "Stop"` 가 멈추지 못한 이유: PS 5.1 은 네이티브 명령의 비정상 종료코드를 throw 하지 않음(1회차 NOTES 동작과 일치).
+- macOS `install.sh` 도 동일 패턴 — `.pkg` Node 는 `/usr/local/bin`(root 소유)이라 `corepack enable` 이 sudo 없이 EACCES 가능(개발기는 기존 Node 세팅이라 미노출, 신규 Mac 잠재).
+
+#### 수정
+- `install.ps1` (pnpm 블록): corepack 경로 제거 → `npm install -g pnpm`(전역 prefix `%AppData%\npm`, 사용자 쓰기 가능). 설치 후 `%AppData%\npm` 을 세션 PATH 에 prepend, 실패 시 `Die` 로 명확한 안내.
+- `install.sh` (pnpm 블록): 동일하게 `npm install -g pnpm` + `hash -r` + 실패 시 `die`. (양 OS 패리티)
+
+#### 검증
+- [x] `bash -n install.sh` → syntax OK
+- [ ] install.ps1 `pwsh` 파싱 → skip(개발기 pwsh 미설치, 브레이스/구문 육안 확인). Windows 실기 재스모크는 수동 게이트.
