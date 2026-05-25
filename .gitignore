@@ -11,17 +11,17 @@ venv/
 *.bak
 .DS_Store
 
-# Runtime cache
+# Runtime cache (root and studio working dirs)
 .v3cache/
 .v3cache_prev/
 .v3cache_*/
-studio/inputs/시험지 제작/.v3cache/
-studio/inputs/시험지 제작/.v3cache_prev/
-studio/inputs/시험지 제작/.v3cache_*/
-studio/inputs/시험지 제작/session_meta.json
-studio/inputs/시험지 제작/question_images/
+**/.v3cache/
+**/시험지 제작/session_meta.json
+**/시험지 제작/question_images/
+inputs/
 
-# Job-specific input files (not templates)
+# Job-specific input files (not templates) — uploaded exam PDFs/HWPX
+**/시험지 제작/*.pdf
 studio/inputs/시험지 제작/*.pdf
 
 # Generated outputs
