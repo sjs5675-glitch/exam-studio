@@ -165,3 +165,41 @@ pnpm : 'pnpm' 용어가 ... 인식되지 않습니다 (install.ps1:67  Say "pnpm
 #### 검증
 - [x] `bash -n install.sh` → syntax OK
 - [ ] install.ps1 `pwsh` 파싱 → skip(개발기 pwsh 미설치, 브레이스/구문 육안 확인). Windows 실기 재스모크는 수동 게이트.
+
+### 3회차 (2026-05-26 — KST) — Python 감지 견고화 + winget 자동설치
+
+**상태**: completed
+**진행 모델**: claude-opus-4-7
+**트리거**: 2회차 수정 후 Windows 재스모크 — pnpm 통과, Python 단계 실패 보고.
+
+#### 증상
+```
+> 가상환경 생성 (.venv)...
+No global/local python version has been set yet. Please set the global/local version by typing:
+pyenv global 3.7.4
+& : 'C:\Users\LOQ\exam-studio\.venv\Scripts\python.exe' 용어가 ... 인식되지 않습니다 (install.ps1:92)
+```
+
+#### 원인
+- 사용자 PC 에 **pyenv-win** 이 있으나 **버전 미설정**. `Get-Command python` 은 shim 존재만 확인하므로 "찾았다"로 통과하지만, 실제 인터프리터가 실행되지 않아 `python -m venv` 가 빈 깡통 → `.venv\Scripts\python.exe` 부재 → 후속 라인에서 "인식 불가".
+- 근본: **존재 확인(Get-Command)만으로는 "동작하는" Python 을 보장하지 못함.**
+
+#### 수정 (install.ps1 Python 블록)
+- `Test-Python`: `& $cmd -c "import sys; print(sys.version_info[0])"` 로 **실제 실행 + 버전 출력**을 검증(pyenv 미설정 shim·MS Store stub 걸러냄).
+- 후보 순서 `py, python, python3` — **py 런처 우선**(pyenv 의 `python` shim 그림자 회피, py 는 pyenv 가 가로채지 않음).
+- 동작하는 Python 부재 시 **`winget install Python.Python.3.12`** 자동설치(Node 패턴과 동일) → 세션 PATH 갱신 → 재탐색, 그래도 없으면 새 창 재실행 안내로 `Die`.
+- venv 생성 후 `.venv\Scripts\python.exe` **존재 검증**, 없으면 cryptic 에러 대신 명확한 `Die`(pyenv 버전 설정 안내 포함).
+
+#### 검증
+- [ ] install.ps1 `pwsh` 파싱 → skip(개발기 pwsh 미설치, 브레이스/구문 육안 확인). Windows 실기 재스모크는 수동 게이트.
+- 사용자 즉시 해소책: `pyenv install 3.12.x && pyenv global 3.12.x` 후 재실행, 또는 python.org 3.12 설치('Add to PATH' 체크) 후 재실행.
+
+#### 파이프라인 forward-audit (설치 이후 런타임까지 동일 클래스 점검)
+사용자 질의("뒤 단계에서 또 비슷한 문제 없나?")로 install 이후 런타임 python 호출 경로를 전수 점검:
+- ✅ Windows 런처(`start-logs.bat`·`start-background.vbs`)는 `.venv\Scripts` 를 PATH 에 prepend → 런타임 bare `python` 이 venv 를 먼저 가리켜 pyenv shim 우회.
+- ✅ `cleanerRunner.ts`·`figureRunner.ts`·`app/api/{auto-crop,pdf-meta,pdf-preview}` 는 `win32 ? "python" : "python3"` 정합.
+- ✅ preflight(`lib/ai/preflight.ts`)는 AI provider(codex/claude/SDK)만 점검 — Python 오탐 차단 없음.
+- 🔧 **`studio/server/stages/builder.ts:58`** — `input.pythonCommand ?? "python3"` 인데 `pythonCommand` 는 코드 어디서도 미할당 → 항상 `python3`. **Windows venv 는 `python3.exe` 를 안 만들므로**(python.exe 만) 핵심 build 스테이지가 Windows 런타임에서 실패. → `win32 ? "python" : "python3"` 로 수정(다른 러너와 동일 패턴). tsc 통과, builder.test 는 mock runner 주입이라 영향 없음.
+
+#### NOTES
+- macOS `install.sh` Python 감지(`command -v python3`)도 동일 클래스의 잠재 버그(pyenv 미설정 shim) 있음 — 단 macOS 는 시스템 python3 동봉이 일반적이라 노출 빈도 낮음. 패리티 적용 여부 미결(별도 판단).

@@ -55,7 +55,7 @@ export async function runBuilderStage(input: BuilderStageInput): Promise<StageRe
   const cache = input.cache ?? createStageCache(input.baseDir);
   const outputDir = input.outputDir ?? path.join(input.baseDir, "outputs");
   const examDataPath = input.examDataPath ?? cache.paths.examData;
-  const python = input.pythonCommand ?? "python3";
+  const python = input.pythonCommand ?? (process.platform === "win32" ? "python" : "python3");
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const runCommand = input.commandRunner ?? runStageCommand;
   const commands: BuilderCommandSummary[] = [];

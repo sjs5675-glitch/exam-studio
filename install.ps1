@@ -78,17 +78,43 @@ try {
   if ($LASTEXITCODE -ne 0) { pnpm install }
 } finally { Pop-Location }
 
-# --- Python ----------------------------------------------------------------
-$py = $null
-foreach ($c in @("python", "py", "python3")) {
-  if (Get-Command $c -ErrorAction SilentlyContinue) { $py = $c; break }
+# --- Python (>=3.10 보장) --------------------------------------------------
+# Get-Command 만으로는 부족하다: pyenv shim 처럼 "설치는 됐지만 버전 미설정"인 경우
+# 명령은 존재해도 실제 인터프리터가 실행되지 않아 venv 가 빈 깡통이 된다.
+# 실제로 버전을 출력하는지로 검증한다. py 런처를 먼저 시도(pyenv shim 그림자 회피).
+function Test-Python($cmd) {
+  if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) { return $false }
+  try {
+    $v = & $cmd -c "import sys; print(sys.version_info[0])" 2>$null
+    return ($LASTEXITCODE -eq 0 -and "$v".Trim() -match '^\d')
+  } catch { return $false }
 }
-if (-not $py) { Die "Python 3을 찾을 수 없습니다. https://www.python.org 에서 3.10+ 를 설치하세요 (Add to PATH 체크)." }
-Say "Python $(& $py --version)"
+function Find-Python {
+  foreach ($c in @("py", "python", "python3")) { if (Test-Python $c) { return $c } }
+  return $null
+}
+$py = Find-Python
+if (-not $py) {
+  Say "동작하는 Python 을 찾지 못했습니다 - winget 으로 Python 자동설치를 진행합니다."
+  if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+    Die "winget 을 찾을 수 없습니다. https://www.python.org 에서 3.10+ 를 설치한 뒤(설치 시 'Add python.exe to PATH' 체크) 다시 실행하세요."
+  }
+  winget install --id Python.Python.3.12 -e --accept-package-agreements --accept-source-agreements
+  # 현재 세션 PATH 갱신 (machine + user) - py 런처/python 인식 시도
+  $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+  $py = Find-Python
+  if (-not $py) {
+    Die "Python 설치 후에도 현재 세션에서 인식하지 못했습니다. 이 창을 닫고 PowerShell 을 새로 열어 install.ps1 을 다시 실행하세요. (pyenv 사용 중이면 'pyenv install 3.12.x' 후 'pyenv global 3.12.x')"
+  }
+}
+Say "Python $(& $py --version 2>&1)"
 
 Say "가상환경 생성 (.venv)..."
 & $py -m venv $Venv
 $venvPy = Join-Path $Venv "Scripts\python.exe"
+if (-not (Test-Path $venvPy)) {
+  Die "가상환경(.venv) 생성에 실패했습니다 ($venvPy 없음). Python 설치 상태를 확인한 뒤 다시 실행하세요. (pyenv 사용 시 'pyenv global <버전>' 으로 버전을 설정했는지 확인)"
+}
 & $venvPy -m pip install --upgrade pip | Out-Null
 Say "Python 의존성 설치 중 (requirements.txt)..."
 & $venvPy -m pip install -r (Join-Path $Root "requirements.txt")
