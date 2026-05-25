@@ -11,10 +11,12 @@ fi
 # 1. clone or pull
 DEST="$HOME/exam-studio"
 if [ -d "$DEST/.git" ]; then
-  # 설치 중 pnpm 이 자동 수정한 추적 파일(pnpm-workspace.yaml 등)을 되돌려 ff pull 이 막히지 않게.
-  # (.env 등 gitignore 파일은 영향 없음)
-  git -C "$DEST" checkout -- . 2>/dev/null || true
-  git -C "$DEST" pull --ff-only
+  # 항상 GitHub 최신 main 으로 강제 동기화한다.
+  # pull --ff-only 는 로컬 커밋/분기·force-push 시 막혀 stale 코드로 설치가 진행될 수 있어,
+  # fetch + reset --hard 로 추적 파일·로컬 커밋을 모두 origin/main 에 맞춘다.
+  # (.env/.venv/node_modules 등 gitignore untracked 파일은 reset --hard 가 건드리지 않음 → 보존)
+  git -C "$DEST" fetch origin
+  git -C "$DEST" reset --hard origin/main
 else
   git clone https://github.com/PNKmath/exam-studio.git "$DEST"
 fi
