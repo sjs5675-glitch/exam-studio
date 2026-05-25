@@ -194,6 +194,12 @@ pyenv global 3.7.4
 - [ ] install.ps1 `pwsh` 파싱 → skip(개발기 pwsh 미설치, 브레이스/구문 육안 확인). Windows 실기 재스모크는 수동 게이트.
 - 사용자 즉시 해소책: `pyenv install 3.12.x && pyenv global 3.12.x` 후 재실행, 또는 python.org 3.12 설치('Add to PATH' 체크) 후 재실행.
 
+#### 보강 (Windows 재스모크 2 — "설치됐는데 못 찾음")
+재스모크에서 winget 이 "이미 설치된 기존 패키지를 찾았습니다 … 업그레이드 없음" 을 반환했으나 `Find-Python` 이 여전히 실패 → **Python 3.12 는 설치돼 있으나 PATH 에 없고(무인설치 기본 PrependPath off) pyenv shim 이 `python`/`python3` 를 가려** 셋 다 도달 불가. winget 도 멱등이라 무한 루프.
+- `Find-Python` 2단계화: **(1) PATH 후보**(py/python/python3) **(2) 표준 설치 폴더 직접 탐색** — `%LOCALAPPDATA%\Programs\Python\Python3*`, `%ProgramFiles%`, `(x86)`, `C:\` 에서 `python.exe` 를 글롭(최신 버전 우선)해 **절대경로로** Test-Python. PATH/pyenv 를 완전히 우회.
+- 찾은 절대경로로 `& $py -m venv` → venv 의 python 은 독립적이고, 런타임 런처가 `.venv\Scripts` 를 prepend 하므로 pyenv 무관.
+- winget 호출에 `--source winget` 추가(msstore 소스 동의 프롬프트 회피).
+
 #### 파이프라인 forward-audit (설치 이후 런타임까지 동일 클래스 점검)
 사용자 질의("뒤 단계에서 또 비슷한 문제 없나?")로 install 이후 런타임 python 호출 경로를 전수 점검:
 - ✅ Windows 런처(`start-logs.bat`·`start-background.vbs`)는 `.venv\Scripts` 를 PATH 에 prepend → 런타임 bare `python` 이 venv 를 먼저 가리켜 pyenv shim 우회.

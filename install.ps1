@@ -79,18 +79,31 @@ try {
 } finally { Pop-Location }
 
 # --- Python (>=3.10 보장) --------------------------------------------------
-# Get-Command 만으로는 부족하다: pyenv shim 처럼 "설치는 됐지만 버전 미설정"인 경우
-# 명령은 존재해도 실제 인터프리터가 실행되지 않아 venv 가 빈 깡통이 된다.
-# 실제로 버전을 출력하는지로 검증한다. py 런처를 먼저 시도(pyenv shim 그림자 회피).
+# 단순 존재(Get-Command)로는 부족하다:
+#   (1) pyenv shim 은 "설치됐지만 버전 미설정"이면 명령은 있어도 실제 실행 안 됨.
+#   (2) winget/python.org 설치본이 PATH 에 없거나(무인설치 기본) pyenv shim 에 가려질 수 있음.
+# 그래서 실제 실행으로 검증하고, PATH 에서 못 찾으면 표준 설치 폴더의 python.exe 를 직접 쓴다.
 function Test-Python($cmd) {
-  if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) { return $false }
   try {
     $v = & $cmd -c "import sys; print(sys.version_info[0])" 2>$null
     return ($LASTEXITCODE -eq 0 -and "$v".Trim() -match '^\d')
   } catch { return $false }
 }
 function Find-Python {
-  foreach ($c in @("py", "python", "python3")) { if (Test-Python $c) { return $c } }
+  # 1) PATH 후보 (py 런처 우선 - pyenv 의 python shim 그림자 회피)
+  foreach ($c in @("py", "python", "python3")) {
+    if ((Get-Command $c -ErrorAction SilentlyContinue) -and (Test-Python $c)) { return $c }
+  }
+  # 2) PATH 밖/가려진 설치본 - 표준 위치에서 python.exe 직접 탐색 (최신 버전 우선)
+  $roots = @((Join-Path $env:LOCALAPPDATA "Programs\Python"), $env:ProgramFiles, ${env:ProgramFiles(x86)}, "$env:SystemDrive\") |
+           Where-Object { $_ -and (Test-Path $_) }
+  foreach ($r in $roots) {
+    $exes = Get-ChildItem -Path $r -Filter "Python3*" -Directory -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending |
+            ForEach-Object { Join-Path $_.FullName "python.exe" } |
+            Where-Object { Test-Path $_ }
+    foreach ($p in $exes) { if (Test-Python $p) { return $p } }
+  }
   return $null
 }
 $py = Find-Python
@@ -99,12 +112,12 @@ if (-not $py) {
   if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
     Die "winget 을 찾을 수 없습니다. https://www.python.org 에서 3.10+ 를 설치한 뒤(설치 시 'Add python.exe to PATH' 체크) 다시 실행하세요."
   }
-  winget install --id Python.Python.3.12 -e --accept-package-agreements --accept-source-agreements
-  # 현재 세션 PATH 갱신 (machine + user) - py 런처/python 인식 시도
+  winget install --id Python.Python.3.12 -e --source winget --accept-package-agreements --accept-source-agreements
+  # 현재 세션 PATH 갱신 후 재탐색 (PATH 미등록이어도 표준 폴더 탐색으로 잡힘)
   $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
   $py = Find-Python
   if (-not $py) {
-    Die "Python 설치 후에도 현재 세션에서 인식하지 못했습니다. 이 창을 닫고 PowerShell 을 새로 열어 install.ps1 을 다시 실행하세요. (pyenv 사용 중이면 'pyenv install 3.12.x' 후 'pyenv global 3.12.x')"
+    Die "Python 설치 후에도 인식하지 못했습니다. 이 창을 닫고 PowerShell 을 새로 열어 install.ps1 을 다시 실행하세요. (pyenv 사용 중이면 'pyenv global 3.12.x' 로 버전을 설정하세요.)"
   }
 }
 Say "Python $(& $py --version 2>&1)"
