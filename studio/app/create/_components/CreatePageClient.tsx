@@ -101,6 +101,7 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
 
   const [autoSplitEnabled, setAutoSplitEnabled] = useState(false);
   const [geminiConfigured, setGeminiConfigured] = useState<boolean | null>(null);
+  const [codexReady, setCodexReady] = useState<boolean | null>(null);
   const [aiSettings, setAiSettings] = useState<AISettings>(DEFAULT_AI_SETTINGS);
   const [meta, setMeta] = useState<MetaValue>(() => createDefaultMeta(currentYear));
 
@@ -119,11 +120,21 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
         })
         .catch(() => setGeminiConfigured(null));
     };
+    const loadCodexStatus = () => {
+      fetch("/api/status")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data: { codexCli?: { available?: boolean; authenticated?: boolean } } | null) => {
+          setCodexReady(Boolean(data?.codexCli?.available && data?.codexCli?.authenticated));
+        })
+        .catch(() => setCodexReady(null));
+    };
     loadGeminiStatus();
+    loadCodexStatus();
 
     const onFocus = () => {
       setAiSettings(readAISettings());
       loadGeminiStatus();
+      loadCodexStatus();
     };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
@@ -132,6 +143,12 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
   // Gemini 키가 확실히 없을 때만 자동 분할을 막는다 (null=확인 전/실패 → 막지 않음).
   const geminiMissing = geminiConfigured === false;
   const autoSplitActive = autoSplitEnabled && !geminiMissing;
+
+  // 선택된 이미지 provider가 확실히 미가용일 때만 이미지 정리를 막는다 (null=확인 전/실패 → 막지 않음).
+  const imageProviderMissing = aiSettings.imageProvider === "codex-cli"
+    ? codexReady === false
+    : geminiMissing;
+  const imageCleaningActive = aiSettings.imageCleaningEnabled && !imageProviderMissing;
 
   const deepSeekStages = AI_STAGE_KEYS.filter(
     (key) => aiSettings.stageOverrides[key] === "deepseek-v4"
@@ -645,12 +662,16 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
               </a>
             )}
             <label
-              className="flex items-center gap-2 cursor-pointer group"
+              className={cn(
+                "flex items-center gap-2 group",
+                imageProviderMissing ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+              )}
               title="추출 전에 nano-banana로 문제 이미지의 손글씨/필기 흔적을 제거합니다. 인쇄된 텍스트·수식·표는 그대로 유지. 체크 해제 시 원본 이미지로 진행."
             >
               <input
                 type="checkbox"
-                checked={aiSettings.imageCleaningEnabled}
+                checked={imageCleaningActive}
+                disabled={imageProviderMissing}
                 onChange={(e) => setAiSettings(writeAISettings({
                   ...aiSettings,
                   imageCleaningEnabled: e.target.checked,
@@ -663,6 +684,16 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
                 </span>
               </span>
             </label>
+            {imageProviderMissing && (
+              <a
+                href="/settings"
+                className="ml-[1.375rem] text-[10px] text-destructive/80 hover:text-destructive hover:underline"
+              >
+                {aiSettings.imageProvider === "codex-cli"
+                  ? "Codex CLI 설치·로그인이 필요합니다 — 설정에서 확인"
+                  : "Gemini API 키가 필요합니다 — 설정에서 입력"}
+              </a>
+            )}
             <div className="flex items-center gap-3">
               <label
                 className="flex items-center gap-1.5 cursor-pointer"

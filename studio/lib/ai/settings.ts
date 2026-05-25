@@ -22,9 +22,9 @@ export const DEEPSEEK_MODEL_STAGE_KEYS: AIStageKey[] = [
   "create.verifier",
 ];
 export const DEFAULT_AI_SETTINGS: AISettings = {
-  defaultProvider: "auto",
+  defaultProvider: "codex-cli",
   stageOverrides: {},
-  imageProvider: "gemini",
+  imageProvider: "codex-cli",
   figureRegen: true,
   imageCleaningEnabled: true,
   checkerMaxAttempts: 2,

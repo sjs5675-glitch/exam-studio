@@ -29,9 +29,9 @@ function createStorage(initial?: string) {
 }
 
 describe("AI settings storage", () => {
-  it("defaults to auto when storage is missing or empty", () => {
+  it("defaults to codex-cli when storage is missing or empty", () => {
     expect(readAISettings(undefined)).toEqual(DEFAULT_AI_SETTINGS);
-    expect(readDefaultProvider(createStorage())).toBe("auto");
+    expect(readDefaultProvider(createStorage())).toBe("codex-cli");
     expect(readStageOverrides(createStorage())).toEqual({});
   });
 
@@ -46,9 +46,9 @@ describe("AI settings storage", () => {
     expect(readDefaultProvider(createStorage(JSON.stringify({ defaultProvider: "claude" })))).toBe("claude-cli");
   });
 
-  it("falls back to auto for hidden or invalid providers", () => {
-    expect(readDefaultProvider(createStorage(JSON.stringify({ defaultProvider: "deepseek-v4" })))).toBe("auto");
-    expect(readDefaultProvider(createStorage("{bad json"))).toBe("auto");
+  it("falls back to the default provider for hidden or invalid providers", () => {
+    expect(readDefaultProvider(createStorage(JSON.stringify({ defaultProvider: "deepseek-v4" })))).toBe("codex-cli");
+    expect(readDefaultProvider(createStorage("{bad json"))).toBe("codex-cli");
   });
 
   it("writes normalized settings", () => {
@@ -66,16 +66,16 @@ describe("AI settings storage", () => {
     expect(readDefaultProvider(storage)).toBe("claude-cli");
   });
 
-  it("exposes image providers and defaults invalid values to gemini", () => {
+  it("exposes image providers and defaults invalid values to the default provider", () => {
     expect(isImageProviderId("gemini")).toBe(true);
     expect(isImageProviderId("codex-cli")).toBe(true);
     expect(isImageProviderId("openai-sdk")).toBe(false);
 
-    const valid = createStorage(JSON.stringify({ imageProvider: "codex-cli" }));
-    expect(readAISettings(valid).imageProvider).toBe("codex-cli");
+    const valid = createStorage(JSON.stringify({ imageProvider: "gemini" }));
+    expect(readAISettings(valid).imageProvider).toBe("gemini");
 
     const invalid = createStorage(JSON.stringify({ imageProvider: "unknown" }));
-    expect(readAISettings(invalid).imageProvider).toBe("gemini");
+    expect(readAISettings(invalid).imageProvider).toBe("codex-cli");
   });
 
   it("exposes auto, claude-cli, claude-sdk, codex-cli, openai-sdk as selectable providers", () => {
@@ -271,9 +271,9 @@ describe("AI settings storage", () => {
 
   it("legacy settings without stageSkip field migrate to default {}", () => {
     const storage = createStorage(JSON.stringify({
-      defaultProvider: "auto",
+      defaultProvider: "codex-cli",
       stageOverrides: {},
-      imageProvider: "gemini",
+      imageProvider: "codex-cli",
       figureRegen: true,
       checkerMaxAttempts: 2,
       // stageSkip missing — legacy

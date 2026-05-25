@@ -177,7 +177,8 @@ export default function SettingsPage() {
         return !cliOk && !sdkKeyOk;
       }
       if (option.id === "codex-cli") {
-        return !(cliInfo?.available ?? false);
+        // codex는 설치(available)뿐 아니라 로그인(authenticated)까지 돼야 사용 가능.
+        return !((cliInfo?.available ?? false) && (cliInfo?.authenticated ?? false));
       }
     }
     // SDK providers: check required env keys
@@ -245,12 +246,13 @@ export default function SettingsPage() {
                       key={option.id}
                       type="button"
                       onClick={() => selectProvider(option.id)}
+                      disabled={hasWarning && !selected}
                       className={cn(
-                        "min-h-36 rounded-lg border p-4 text-left transition-colors",
+                        "min-h-36 rounded-lg border p-4 text-left transition-colors disabled:cursor-not-allowed",
                         selected
                           ? "border-primary bg-primary/5"
                           : hasWarning
-                          ? "border-destructive/40 hover:border-destructive/60 hover:bg-muted/40"
+                          ? "border-destructive/40 opacity-60"
                           : "border-border hover:border-primary/40 hover:bg-muted/40"
                       )}
                     >
@@ -409,19 +411,20 @@ export default function SettingsPage() {
                   const selected = option.id === settings.imageProvider;
                   const hasWarning = option.id === "gemini"
                     ? !(envStatus.GEMINI_API_KEY?.configured ?? false)
-                    : !(cliStatus.codexCli?.available ?? false);
+                    : !((cliStatus.codexCli?.available ?? false) && (cliStatus.codexCli?.authenticated ?? false));
 
                   return (
                     <button
                       key={option.id}
                       type="button"
                       onClick={() => selectImageProvider(option.id)}
+                      disabled={hasWarning && !selected}
                       className={cn(
-                        "min-h-32 rounded-lg border p-4 text-left transition-colors",
+                        "min-h-32 rounded-lg border p-4 text-left transition-colors disabled:cursor-not-allowed",
                         selected
                           ? "border-primary bg-primary/5"
                           : hasWarning
-                          ? "border-destructive/40 hover:border-destructive/60 hover:bg-muted/40"
+                          ? "border-destructive/40 opacity-60"
                           : "border-border hover:border-primary/40 hover:bg-muted/40"
                       )}
                     >

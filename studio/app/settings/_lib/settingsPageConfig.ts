@@ -120,6 +120,7 @@ export interface EnvKeyStatus {
 
 export interface CliStatus {
   available: boolean;
+  authenticated?: boolean;
   version: string;
 }
 
