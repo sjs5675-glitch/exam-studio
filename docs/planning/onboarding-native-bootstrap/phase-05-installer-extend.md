@@ -210,6 +210,14 @@ Python·.env 통과 후 AI CLI 단계에서 `codex login status` 가 정상 상�
 - 원인: **pnpm 11 이 `onlyBuiltDependencies` 를 더 이상 읽지 않음**(→ `allowBuilds` 로 대체, 공식 문서 확인). 그래서 `studio/pnpm-workspace.yaml` 의 `onlyBuiltDependencies:[esbuild,sharp]` 가 무시되고 esbuild·sharp 까지 "ignored builds" 로 떠 네 패키지(esbuild/msw/sharp/unrs-resolver)의 빌드 결정이 **미정** → 스크립트 실행 전 deps 점검이 미정 빌드를 exit 1 로 처리. (재스모크1에서 pnpm 이 자동 추가하려던 `allowBuilds` 템플릿이 사실 이 마이그레이션 요구였음 — 그때 되돌린 게 잘못.)
 - 수정: `pnpm-workspace.yaml` 에 `allowBuilds` 추가, 네 패키지 모두 `false`(이 프로젝트 네이티브 의존성은 전부 prebuilt 바이너리로 동작 — `@img/sharp-*`·`@esbuild/*`·napi 플랫폼 패키지 — 빌드 불필요). `onlyBuiltDependencies` 는 구 pnpm 9 호환으로 유지. 런타임 영향 없음(prebuilt). Windows 실기 재기동 검증 필요.
 
+#### 보강 (Windows 재스모크 5 — allowBuilds 만으론 안 됨 + pull 차단 발견)
+재스모크4(allowBuilds) 적용 후에도 기동 실패가 **byte 동일**하게 재현. 두 근본 원인:
+1. **pnpm 11 이 `pnpm install` 시 `pnpm-workspace.yaml` 을 자동 수정**(미정 빌드에 `allowBuilds: <pkg>: set this to true or false` 템플릿 append)한다. → bootstrap 의 `git pull --ff-only` 가 로컬 변경 충돌로 실패 → 커밋이 사용자에게 도달 못 함(그래서 "여전히 동일"). bootstrap one-liner 재실행해도 마찬가지.
+2. `allowBuilds: false` 는 "무시"라 ignored-builds 경고 줄은 그대로 남고, 기동 전 `runDepsStatusCheck`(verifyDepsBeforeRun)는 여전히 exit 1.
+- 수정:
+  - `pnpm-workspace.yaml` 에 **`verifyDepsBeforeRun: false`** — 기동 시 deps 사전 점검/재설치 자체를 끔(의존성은 install 단계에서 이미 설치됨). 이게 exit 1 의 직접 차단.
+  - `bootstrap.ps1`·`bootstrap.sh`: pull 전에 **`git checkout -- .`** 로 pnpm 자동수정 폐기 → ff pull 보장(.env 등 gitignore 무관). 완전한 allowBuilds 결정이 들어가면 pnpm 이 더는 파일을 자동수정하지 않아 재오염도 없음.
+
 #### 파이프라인 forward-audit (설치 이후 런타임까지 동일 클래스 점검)
 사용자 질의("뒤 단계에서 또 비슷한 문제 없나?")로 install 이후 런타임 python 호출 경로를 전수 점검:
 - ✅ Windows 런처(`start-logs.bat`·`start-background.vbs`)는 `.venv\Scripts` 를 PATH 에 prepend → 런타임 bare `python` 이 venv 를 먼저 가리켜 pyenv shim 우회.

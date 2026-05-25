@@ -11,6 +11,9 @@ fi
 # 1. clone or pull
 DEST="$HOME/exam-studio"
 if [ -d "$DEST/.git" ]; then
+  # 설치 중 pnpm 이 자동 수정한 추적 파일(pnpm-workspace.yaml 등)을 되돌려 ff pull 이 막히지 않게.
+  # (.env 등 gitignore 파일은 영향 없음)
+  git -C "$DEST" checkout -- . 2>/dev/null || true
   git -C "$DEST" pull --ff-only
 else
   git clone https://github.com/PNKmath/exam-studio.git "$DEST"
