@@ -200,6 +200,11 @@ pyenv global 3.7.4
 - 찾은 절대경로로 `& $py -m venv` → venv 의 python 은 독립적이고, 런타임 런처가 `.venv\Scripts` 를 prepend 하므로 pyenv 무관.
 - winget 호출에 `--source winget` 추가(msstore 소스 동의 프롬프트 회피).
 
+#### 보강 (Windows 재스모크 3 — codex stderr 가 스크립트를 죽임)
+Python·.env 통과 후 AI CLI 단계에서 `codex login status` 가 정상 상태 메시지 **"Logged in using ChatGPT" 를 stderr 로** 출력 → 상단 `$ErrorActionPreference = "Stop"` 이 이를 `NativeCommandError`(치명)로 바꿔 `codex.ps1:24`(`& node ...`)에서 스크립트 중단. **로그인 성공인데 죽는 역설.** `2>&1 > $null` 은 셈 내부에서 던져진 예외를 못 막음.
+- AI CLI 설치/로그인 구간 진입 시 **`$ErrorActionPreference = "Continue"`** 로 낮춤. 이 구간은 전부 native 호출 + 수동 `$LASTEXITCODE` 체크라 Stop 불필요(Install-Codex/Install-Claude 의 `npm i -g` stderr 도 동일 위험이었음).
+- install.sh 는 bash `set -e` 가 stderr 아닌 exit code 에만 반응 + 이미 `codex login status >/dev/null 2>&1` 로 감싸서 무관(패리티 불필요).
+
 #### 파이프라인 forward-audit (설치 이후 런타임까지 동일 클래스 점검)
 사용자 질의("뒤 단계에서 또 비슷한 문제 없나?")로 install 이후 런타임 python 호출 경로를 전수 점검:
 - ✅ Windows 런처(`start-logs.bat`·`start-background.vbs`)는 `.venv\Scripts` 를 PATH 에 prepend → 런타임 bare `python` 이 venv 를 먼저 가리켜 pyenv shim 우회.

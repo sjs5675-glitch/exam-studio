@@ -141,6 +141,12 @@ if (-not (Test-Path $envFile)) {
 
 # --- AI CLI 선택 설치 + 로그인 ----------------------------------------------
 # 로그인은 설치와 분리: 실패해도 설치 자체는 완료로 본다(앱 게이팅/배너가 후속 안내).
+#
+# 여기서부터 $ErrorActionPreference 를 Continue 로 낮춘다:
+# codex/npm 같은 native CLI 는 정상 상태 메시지("Logged in using ChatGPT")도 stderr 로 쓰는데,
+# Stop 이면 PowerShell 이 그 stderr 를 치명 오류(NativeCommandError)로 바꿔 스크립트를 죽인다.
+# 이 구간은 전부 native 호출 + 수동 $LASTEXITCODE 체크라 Stop 이 불필요하고 해롭다.
+$ErrorActionPreference = "Continue"
 
 function Install-Codex {
   if (Get-Command codex -ErrorAction SilentlyContinue) {
