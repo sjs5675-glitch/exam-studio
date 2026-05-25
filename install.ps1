@@ -169,13 +169,15 @@ if (-not (Test-Path $envFile)) {
 $ErrorActionPreference = "Continue"
 
 function Install-Codex {
+  # 항상 @latest 로 설치/업그레이드한다. codex 의 `--json` 이벤트 스키마·auth 흐름이
+  # 버전마다 달라(앱 provider 는 최신 codex 기준), 구버전이 남아 있으면 파이프라인이 깨진다.
   if (Get-Command codex -ErrorAction SilentlyContinue) {
-    Say "Codex CLI 이미 설치됨 - 건너뜀."
+    Say "Codex CLI 최신 버전으로 업데이트 중 (npm i -g @openai/codex@latest)..."
   } else {
-    Say "Codex CLI 설치 중 (npm i -g @openai/codex)..."
-    npm i -g @openai/codex
-    if ($LASTEXITCODE -ne 0) { Warn "Codex CLI 설치 실패 - 나중에 'npm i -g @openai/codex' 로 재시도하세요."; return }
+    Say "Codex CLI 설치 중 (npm i -g @openai/codex@latest)..."
   }
+  npm i -g @openai/codex@latest
+  if ($LASTEXITCODE -ne 0) { Warn "Codex CLI 설치/업데이트 실패 - 나중에 'npm i -g @openai/codex@latest' 로 재시도하세요."; return }
   # 이미 로그인돼 있으면 스킵
   & codex login status > $null 2>&1
   if ($LASTEXITCODE -eq 0) {
@@ -187,13 +189,14 @@ function Install-Codex {
 }
 
 function Install-Claude {
+  # 항상 @latest 로 설치/업그레이드한다(구버전 잔존 방지).
   if (Get-Command claude -ErrorAction SilentlyContinue) {
-    Say "Claude Code CLI 이미 설치됨 - 건너뜀."
+    Say "Claude Code CLI 최신 버전으로 업데이트 중 (npm i -g @anthropic-ai/claude-code@latest)..."
   } else {
-    Say "Claude Code CLI 설치 중 (npm i -g @anthropic-ai/claude-code)..."
-    npm i -g @anthropic-ai/claude-code
-    if ($LASTEXITCODE -ne 0) { Warn "Claude Code CLI 설치 실패 - 나중에 'npm i -g @anthropic-ai/claude-code' 로 재시도하세요."; return }
+    Say "Claude Code CLI 설치 중 (npm i -g @anthropic-ai/claude-code@latest)..."
   }
+  npm i -g @anthropic-ai/claude-code@latest
+  if ($LASTEXITCODE -ne 0) { Warn "Claude Code CLI 설치/업데이트 실패 - 나중에 'npm i -g @anthropic-ai/claude-code@latest' 로 재시도하세요."; return }
   Warn "Claude Code 로그인 창을 새로 엽니다. 안내에 따라 1회 로그인하세요 (실패해도 설치는 완료)."
   Start-Process -FilePath "cmd.exe" -ArgumentList "/k","claude"
 }
