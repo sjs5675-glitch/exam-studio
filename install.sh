@@ -65,13 +65,20 @@ say "Node 의존성 설치 중 (studio/)..."
 ( cd "$STUDIO" && { pnpm install --frozen-lockfile 2>/dev/null || pnpm install; } )
 
 # --- Python ----------------------------------------------------------------
+# command -v 만으로는 부족: pyenv 미설정 shim 은 존재해도 실제 인터프리터가 없어
+# venv 가 빈 깡통이 된다. 실제로 실행돼 Python 3 인지로 검증한다.
+test_python() {
+  command -v "$1" >/dev/null 2>&1 || return 1
+  "$1" -c 'import sys; raise SystemExit(0 if sys.version_info[0] >= 3 else 1)' >/dev/null 2>&1
+}
 PY=""
-for c in python3 python; do command -v "$c" >/dev/null 2>&1 && { PY="$c"; break; }; done
-[ -n "$PY" ] || die "Python 3을 찾을 수 없습니다. https://www.python.org 에서 3.10+ 를 설치하세요."
+for c in python3 python; do test_python "$c" && { PY="$c"; break; }; done
+[ -n "$PY" ] || die "동작하는 Python 3 을 찾지 못했습니다. https://www.python.org 에서 3.10+ 를 설치하거나, pyenv 사용 시 'pyenv install 3.12.x' 후 'pyenv global 3.12.x' 로 버전을 설정한 뒤 다시 실행하세요."
 say "Python $("$PY" --version 2>&1 | awk '{print $2}')"
 
 say "가상환경 생성 (.venv)..."
 "$PY" -m venv "$VENV"
+[ -x "$VENV/bin/python" ] || die "가상환경(.venv) 생성에 실패했습니다 ($VENV/bin/python 없음). Python 설치 상태를 확인한 뒤 다시 실행하세요. (pyenv 사용 시 'pyenv global <버전>' 으로 버전을 설정했는지 확인)"
 # shellcheck disable=SC1091
 "$VENV/bin/python" -m pip install --upgrade pip >/dev/null
 say "Python 의존성 설치 중 (requirements.txt)..."

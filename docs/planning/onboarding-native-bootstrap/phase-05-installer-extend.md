@@ -202,4 +202,4 @@ pyenv global 3.7.4
 - 🔧 **`studio/server/stages/builder.ts:58`** — `input.pythonCommand ?? "python3"` 인데 `pythonCommand` 는 코드 어디서도 미할당 → 항상 `python3`. **Windows venv 는 `python3.exe` 를 안 만들므로**(python.exe 만) 핵심 build 스테이지가 Windows 런타임에서 실패. → `win32 ? "python" : "python3"` 로 수정(다른 러너와 동일 패턴). tsc 통과, builder.test 는 mock runner 주입이라 영향 없음.
 
 #### NOTES
-- macOS `install.sh` Python 감지(`command -v python3`)도 동일 클래스의 잠재 버그(pyenv 미설정 shim) 있음 — 단 macOS 는 시스템 python3 동봉이 일반적이라 노출 빈도 낮음. 패리티 적용 여부 미결(별도 판단).
+- macOS `install.sh` Python 감지에도 **감지 견고화 + venv 검증 패리티 적용함**(`test_python` 으로 실제 실행 검증, venv 생성 후 `.venv/bin/python` 존재 확인). 자동설치(.pkg)는 macOS 가 python3 흔함 + sudo .pkg 큰 변경이라 **미적용**(사용자 결정). builder 는 `process.platform` 분기라 양 OS 무관.
