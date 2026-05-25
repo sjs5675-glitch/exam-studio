@@ -1,4 +1,4 @@
-import { spawn } from "child_process";
+import crossSpawn from "cross-spawn";
 import type { StageError } from "./types";
 
 export type StageCommandStatus = "success" | "non_zero_exit" | "timeout" | "spawn_error";
@@ -34,7 +34,9 @@ export async function runStageCommand(options: StageCommandOptions): Promise<Sta
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
 
-    const child = spawn(options.command, args, {
+    // cross-spawn: Windows에서 python이 pyenv-win/MS Store 별칭 등 .bat/.cmd shim일 때도
+    // 기본 spawn(shell:false)의 EINVAL 없이 안전하게 실행한다.
+    const child = crossSpawn(options.command, args, {
       cwd: options.cwd,
       // Force Python UTF-8 mode so Korean stdout/paths don't garble on Windows (CP949 default).
       env: {

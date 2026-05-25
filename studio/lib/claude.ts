@@ -1,4 +1,5 @@
-import { spawn, type ChildProcess } from "child_process";
+import crossSpawn from "cross-spawn";
+import type { ChildProcess } from "child_process";
 import path from "path";
 
 // --- Types ---
@@ -188,17 +189,26 @@ export function runClaude(
   const cwd = options?.cwd ?? process.cwd();
   const env = options?.env ? { ...process.env, ...options.env } : process.env;
 
-  const proc = spawn("claude", claudeArgs, {
+  // Windows: claude는 PATH상 claude.cmd shim이라 기본 spawn(shell:false)으로는
+  // 못 찾거나(.cmd 미해석) EINVAL이 난다. cross-spawn이 .cmd/PATHEXT를 처리한다.
+  const proc = crossSpawn("claude", claudeArgs, {
     cwd,
     env,
     stdio: ["ignore", "pipe", "pipe"],
   });
 
-  const exitCode = new Promise<number>((resolve) => {
-    proc.on("close", (code) => resolve(code ?? 1));
+  const stderrChunks: string[] = [];
+  // spawn 실패(claude 미설치/PATH 누락 등)는 비동기 'error'로 온다. 핸들러가 없으면
+  // 미처리 예외로 SSE 스트림이 끊겨 클라이언트가 불투명한 "network error"만 본다.
+  proc.on("error", (err: Error) => {
+    stderrChunks.push(`claude CLI 실행 실패: ${err.message}`);
   });
 
-  const stderrChunks: string[] = [];
+  const exitCode = new Promise<number>((resolve) => {
+    proc.on("close", (code) => resolve(code ?? 1));
+    proc.on("error", () => resolve(1));
+  });
+
   proc.stderr?.on("data", (chunk: Buffer) => {
     stderrChunks.push(chunk.toString());
   });
@@ -210,20 +220,28 @@ export function runClaude(
 async function* parseStreamJson(proc: ChildProcess, stderrChunks: string[]): AsyncIterable<ClaudeEvent> {
   let buffer = "";
 
-  for await (const chunk of proc.stdout!) {
-    buffer += chunk.toString();
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
+  // spawn 실패 시 stdout이 데이터 없이 닫히거나 'error'를 낼 수 있다.
+  // 여기서 throw하면 SSE 스트림이 끊기므로 감싸고, 아래 stderr 폴백으로 메시지를 surface.
+  try {
+    if (proc.stdout) {
+      for await (const chunk of proc.stdout) {
+        buffer += chunk.toString();
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
 
-    for (const line of lines) {
-      if (line.trim()) {
-        try {
-          yield JSON.parse(line);
-        } catch {
-          // non-JSON lines ignored
+        for (const line of lines) {
+          if (line.trim()) {
+            try {
+              yield JSON.parse(line);
+            } catch {
+              // non-JSON lines ignored
+            }
+          }
         }
       }
     }
+  } catch {
+    // stdout 스트림 에러 — stderr 폴백으로 처리.
   }
 
   if (stderrChunks.length > 0) {

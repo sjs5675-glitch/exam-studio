@@ -1,11 +1,13 @@
-import { spawn, type ChildProcess } from "child_process";
+import crossSpawn from "cross-spawn";
+import type { ChildProcess } from "child_process";
 import type { ClaudeEvent, ContentBlock } from "../../claude";
 import type { AIProviderAdapter, ProviderRunOptions, ProviderRunResult } from "../types";
 
 /**
- * Windows: npm 전역 설치 시 PATH에 놓이는 것은 codex.cmd shim이며,
- * shell:false(기본)일 때 Node spawn은 .cmd를 직접 실행하지 못해 ENOENT가 발생함.
- * → win32에서만 "codex.cmd"를 반환해 shell:false를 유지한다.
+ * Windows: npm 전역 설치 시 PATH에 놓이는 것은 codex.cmd shim이다.
+ * Node 기본 spawn은 shell:false에서 .cmd를 직접 띄우지 못한다(구버전 ENOENT,
+ * 패치된 Node는 EINVAL을 throw). 그래서 실행은 cross-spawn으로 한다(run() 참고).
+ * win32에서 ".cmd"를 명시해 두면 cross-spawn이 cmd.exe 경유로 안전하게 실행한다.
  * macOS/Linux는 현행 "codex" 그대로.
  */
 export function getCodexBin(): string {
@@ -183,13 +185,18 @@ export const codexCliProvider: AIProviderAdapter = {
     const args = buildCodexExecArgs(prompt, cwd, options?.imagePaths);
     const codexBin = getCodexBin();
     process.stderr.write(`[codex] spawn: ${codexBin} ${args.slice(0, args.length - 1).join(" ")} <PROMPT len=${prompt.length}>\n`);
-    const proc = spawn(codexBin, args, {
+    const proc = crossSpawn(codexBin, args, {
       cwd,
       env: options?.env ? { ...process.env, ...options.env } : process.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
 
     const stderrChunks: string[] = [];
+    // spawn 실패(codex 미설치/PATH 누락 등)는 비동기 'error' 이벤트로 온다.
+    // 핸들러가 없으면 미처리 예외로 SSE 스트림이 통째로 끊긴다 → 메시지로 surface.
+    proc.on("error", (err: Error) => {
+      stderrChunks.push(`\n[codex] 실행 실패: ${err.message}`);
+    });
     // Real-time stderr passthrough: helps diagnose hangs (auth prompts, model loading).
     proc.stderr?.on("data", (chunk: Buffer) => {
       const s = chunk.toString();
@@ -230,6 +237,8 @@ export const codexCliProvider: AIProviderAdapter = {
           }
           resolve(code ?? 1);
         });
+        // 'close'가 안 오는 spawn 실패 케이스에서도 반드시 종료코드를 resolve.
+        proc.on("error", () => resolve(1));
       }),
       metadata: {
         requestedProvider: "codex-cli",
