@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
 import { execSync } from "child_process";
-import fs from "fs";
-import path from "path";
-import os from "os";
 import { getQueueStatus } from "@/lib/queue";
+import { checkProviderAuth } from "@/lib/server/providerAuth";
 
 function checkCli(binary: string): { available: boolean; version: string } {
   try {
@@ -20,32 +18,6 @@ function checkCli(binary: string): { available: boolean; version: string } {
   return { available: false, version: "" };
 }
 
-function checkAuth(provider: "codex" | "claude"): boolean {
-  if (provider === "codex") {
-    try {
-      execSync("codex login status", {
-        timeout: 10000,
-        stdio: ["ignore", "ignore", "ignore"],
-      });
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  if (
-    process.env.ANTHROPIC_API_KEY ||
-    process.env.CLAUDE_CODE_OAUTH_TOKEN
-  ) {
-    return true;
-  }
-
-  const home =
-    process.env.USERPROFILE || process.env.HOME || os.homedir();
-  const credFile = path.join(home, ".claude", ".credentials.json");
-  return fs.existsSync(credFile);
-}
-
 export async function GET() {
   const claudeCli = checkCli("claude");
   const codexCli = checkCli("codex");
@@ -54,11 +26,11 @@ export async function GET() {
   return NextResponse.json({
     cli: {
       ...claudeCli,
-      authenticated: claudeCli.available ? checkAuth("claude") : false,
+      authenticated: claudeCli.available ? checkProviderAuth("claude") : false,
     },
     codexCli: {
       ...codexCli,
-      authenticated: codexCli.available ? checkAuth("codex") : false,
+      authenticated: codexCli.available ? checkProviderAuth("codex") : false,
     },
     queue: queueStatus,
     timestamp: new Date().toISOString(),
