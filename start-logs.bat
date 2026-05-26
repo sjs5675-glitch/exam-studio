@@ -23,6 +23,11 @@ if not exist "node_modules\.bin\next.CMD" (
 REM .venv(파이썬 의존성)를 PATH 앞에 추가
 if exist "%~dp0.venv\Scripts" set "PATH=%~dp0.venv\Scripts;%PATH%"
 
+REM npm 전역 bin(%APPDATA%\npm: pnpm.cmd 위치)을 PATH 에 추가.
+REM 방금 Node/pnpm 을 설치한 직후엔 이미 떠 있던 Explorer 가 옛 PATH 를 물려줘
+REM 'pnpm.cmd 없음' 으로 실패한다 — 재부팅 없이도 동작하도록 직접 보강한다.
+set "PATH=%APPDATA%\npm;%PATH%"
+
 REM 기존 포트 정리
 for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr ":3020" ^| findstr "LISTENING"') do taskkill /pid %%a /f >nul 2>nul
 for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr ":3021 " ^| findstr "LISTENING"') do taskkill /pid %%a /f >nul 2>nul

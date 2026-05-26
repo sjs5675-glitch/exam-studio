@@ -26,9 +26,11 @@ If Not fso.FolderExists(studioDir & "\node_modules\.bin") Then
     WScript.Quit 1
 End If
 
-' venv(파이썬 의존성)를 PATH 앞에 추가 — spawn 되는 python 이 .venv 를 쓰도록
-pathPrefix = ""
-If fso.FolderExists(venvBin) Then pathPrefix = "set ""PATH=" & venvBin & ";%PATH%"" && "
+' npm 전역 bin(%APPDATA%\npm: pnpm.cmd 위치) + venv(파이썬) 를 PATH 앞에 추가.
+' 방금 Node/pnpm 을 설치한 직후엔 이미 떠 있던 Explorer 가 옛 PATH 를 물려줘
+' 'pnpm.cmd 없음' 으로 실패한다 — 재부팅 없이도 동작하도록 직접 보강한다.
+pathPrefix = "set ""PATH=%APPDATA%\npm;%PATH%"" && "
+If fso.FolderExists(venvBin) Then pathPrefix = pathPrefix & "set ""PATH=" & venvBin & ";%PATH%"" && "
 
 ' 기존 포트 프로세스 정리
 WshShell.Run "cmd /c for /f ""tokens=5"" %a in ('netstat -ano 2^>nul ^| findstr "":3020"" ^| findstr ""LISTENING""') do taskkill /pid %a /f >nul 2>nul", 0, True
