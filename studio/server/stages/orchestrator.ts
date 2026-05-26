@@ -18,6 +18,7 @@ import { runCheckerWithAutoFix } from "./checker";
 import { runFigureStage } from "./figureRunner";
 import { runCleanerStage } from "./cleanerRunner";
 import { readRuntimeEnv } from "../../lib/server/runtimeEnv";
+import { checkProviderAuth } from "../../lib/server/providerAuth";
 import { determineStartStage, shouldRunStage, type WorkflowStage } from "./resumeState";
 import { applyVerifierRetry } from "./stagePlan";
 import {
@@ -179,6 +180,42 @@ function getProviderForStage(
   return getProviderAdapter(id);
 }
 
+/**
+ * 작업에 쓰이는 CLI provider(auto/claude-cli→claude, codex-cli→codex)의 로그인 상태를
+ * 확인해 미로그인이면 Activity Log("system")에 경고를 남긴다. 작업은 그대로 진행하며,
+ * 해당 stage가 실패할 경우 원인이 로그에 미리 드러나도록 한다. 로그인은 대시보드가 아니라
+ * 터미널(CLI)에서 해야 하므로 명령을 함께 안내한다. SDK/API-key provider는 로그인 개념이
+ * 없어 제외. `isAuthenticated`는 테스트 주입용 seam(기본값은 실제 CLI 확인).
+ */
+export function warnUnauthenticatedProviders(
+  defaultProvider: AIProviderId,
+  stageOverrides: StageOverrideMap,
+  send: (event: SSEEvent) => void,
+  isAuthenticated: (provider: "claude" | "codex") => boolean = checkProviderAuth,
+): void {
+  const usedProviders = new Set<AIProviderId>([
+    defaultProvider,
+    ...Object.values(stageOverrides).filter((p): p is StageProviderId => Boolean(p)),
+  ]);
+  const authTargets = new Set<"claude" | "codex">();
+  for (const p of usedProviders) {
+    if (p === "auto" || p === "claude-cli") authTargets.add("claude");
+    else if (p === "codex-cli") authTargets.add("codex");
+  }
+  for (const target of authTargets) {
+    if (isAuthenticated(target)) continue;
+    const { label, loginCmd } =
+      target === "claude"
+        ? { label: "Claude Code", loginCmd: "claude" }
+        : { label: "Codex", loginCmd: "codex login" };
+    send(logEvent(
+      "system",
+      `${label} CLI 로그인이 안 되어 있습니다. 터미널에서 '${loginCmd}' 로 로그인하세요 — 그렇지 않으면 해당 단계에서 실패할 수 있습니다.`,
+      "warn",
+    ));
+  }
+}
+
 export async function runStageOrchestrator(
   input: OrchestratorInput
 ): Promise<OrchestratorResult> {
@@ -217,6 +254,9 @@ export async function runStageOrchestrator(
     cache,
     questionNumbers
   );
+
+  // 작업에 쓰이는 CLI provider의 로그인 상태를 확인해 미로그인이면 Activity Log에 경고를 남긴다.
+  warnUnauthenticatedProviders(input.defaultProvider, stageOverrides, send);
 
   // stopAfterStage 가 지정되면 그 이후 stage 는 실행하지 않는다.
   // "cleaning" 은 extractor 직전의 cleaning 단계까지만, 그 외는 WorkflowStage 와 동일.
