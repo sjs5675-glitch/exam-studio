@@ -33,7 +33,6 @@ interface SystemStatus {
 export default function DashboardPage() {
   const [recentJobs, setRecentJobs] = useState<Job[]>([]);
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
-  const [loginToast, setLoginToast] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/jobs?limit=5")
@@ -47,52 +46,8 @@ export default function DashboardPage() {
       .catch(() => {});
   }, []);
 
-  async function handleLogin(provider: "codex" | "claude") {
-    await fetch("/api/provider-login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ provider }),
-    });
-    setLoginToast("터미널에서 브라우저 로그인을 완료한 뒤 새로고침하세요.");
-    setTimeout(() => setLoginToast(null), 6000);
-  }
-
-  // 설치됨 + 미인증인 provider 목록
-  const loginNeeded: Array<{ provider: "codex" | "claude"; label: string }> = [];
-  if (systemStatus?.codexCli.available && !systemStatus.codexCli.authenticated) {
-    loginNeeded.push({ provider: "codex", label: "Codex" });
-  }
-  if (systemStatus?.cli.available && !systemStatus.cli.authenticated) {
-    loginNeeded.push({ provider: "claude", label: "Claude Code" });
-  }
-
   return (
     <div className="space-y-8">
-      {/* 로그인 필요 배너 */}
-      {loginNeeded.map(({ provider, label }) => (
-        <div
-          key={provider}
-          className="flex items-center justify-between rounded-md border border-yellow-400/60 bg-yellow-50 dark:bg-yellow-950/20 px-4 py-3 text-sm"
-        >
-          <span className="text-yellow-800 dark:text-yellow-300">
-            {label} 로그인이 필요합니다.
-          </span>
-          <button
-            onClick={() => handleLogin(provider)}
-            className="ml-4 rounded bg-yellow-400 px-3 py-1 text-xs font-medium text-yellow-900 hover:bg-yellow-300 transition-colors"
-          >
-            로그인
-          </button>
-        </div>
-      ))}
-
-      {/* 로그인 완료 안내 토스트 */}
-      {loginToast && (
-        <div className="rounded-md border border-blue-300/60 bg-blue-50 dark:bg-blue-950/20 px-4 py-3 text-sm text-blue-800 dark:text-blue-300">
-          {loginToast}
-        </div>
-      )}
-
       {/* Quick start */}
       <div className="grid grid-cols-2 gap-4">
         <Link href="/create">
