@@ -216,6 +216,17 @@ export class LatexParser {
         }
         return sNode;
       }
+      if (kw === "overset") {
+        // \overset{위}{밑}. 호(弧) `\overset{\frown}{AB}` → HWP arch{AB}.
+        // 그 외 overset 은 HWP 직접 대응이 없어 밑(base)만 남긴다.
+        const over = this.parseSubOrSupContent();
+        const base = this.parseSubOrSupContent();
+        const isFrown = over.type === "Literal" && (over as LiteralNode).value === "frown";
+        if (isFrown) {
+          return this.maybeParseSubSup({ type: "Decorated", decoType: "arch", child: base } as DecoratedNode);
+        }
+        return this.maybeParseSubSup(base);
+      }
       if (["acute", "grave", "dot", "ddot", "bar", "vec", "hat", "tilde", "check",
            "overrightarrow", "overleftarrow", "boxed", "overbrace", "underbrace"].includes(kw)) {
         const child = this.parseSubOrSupContent();
@@ -250,6 +261,12 @@ export class LatexParser {
         return this.maybeParseSubSup(br);
       }
       if (")]}".includes(t.value)) {
+        // 현재 그룹의 닫는기호면 소비하지 않는다 — 상위 경계검사가 처리.
+        // (연산자 루프 `a+}` 처럼 +/- 뒤에서 parseFactor 가 불려 닫는기호를 피연산자로
+        //  삼키면 `\lim_{x\to 0+}` 우극한 등에서 그룹 경계가 깨져 중괄호 불균형이 난다.)
+        if (t.value === this.closer) {
+          return { type: "Literal", value: "" } as LiteralNode;
+        }
         // 짝 없는 닫는기호 → 리터럴 (뒤따르는 ^/_ 도 흡수)
         this.next();
         return this.maybeParseSubSup({ type: "Literal", value: t.value } as LiteralNode);
@@ -272,8 +289,12 @@ export class LatexParser {
     if (t1.type === TokenType.IDENT) {
       const t2 = this.tokens[this.pos + 1];
       if (t2 && t2.type === TokenType.KEYWORD && t2.value === "left") {
-        // f \left
-        this.next();
+        // f \left(...)  — parseLeftRightBracket 은 `\left` 가 소비된 상태를 전제로 하므로
+        // (parseFactor 의 left 분기와 동일) 여기서도 IDENT 와 `\left` 를 둘 다 소비해야 한다.
+        // 안 그러면 consumeDelim 이 델리미터를 못 찾아 closer="" 로 파싱 → 바깥 `}` 등을
+        // 경계로 인식 못 하고 뒤 토큰(분모 등)을 통째로 삼킨다.
+        this.next(); // IDENT (f)
+        this.next(); // \left
         const fLit: LiteralNode = { type: "Literal", value: t1.value };
         const bracket = this.parseLeftRightBracket();
         const node: BinaryOpNode = { type: "BinaryOp", operator: "apply", left: fLit, right: bracket };

@@ -5,6 +5,7 @@ const LATEX_KEYWORDS = new Set([
   "int", "oint", "sum", "sqrt", "frac", "binom",
   "acute", "grave", "dot", "ddot", "bar", "vec", "hat", "tilde", "check",
   "overrightarrow", "overleftarrow", "boxed", "overbrace", "underbrace", "times",
+  "overset",
   "left", "right",
   "begin", "end"
 ]);

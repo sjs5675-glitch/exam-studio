@@ -58,14 +58,34 @@ function isPrescriptHead(node: ASTNode): node is SubscriptNode {
   return false;
 }
 
-/** P/C/H(순열·조합·중복조합)에 오른쪽 아래첨자가 붙은 형태인가. */
-function asCombOp(node: ASTNode): { op: string; r: ASTNode } | null {
-  if (node.type !== "Subscript") return null;
-  const b = (node as SubscriptNode).base;
-  if (b.type !== "Literal") return null;
-  const v = (b as LiteralNode).value;
-  if (v === "P" || v === "C" || v === "H") return { op: v, r: (node as SubscriptNode).sub };
+/** P/C/H 글자를 찾아 반환 — `\mathrm{P}`/`{P}`/`P` 등 래핑을 벗긴다. */
+function combLetter(node: ASTNode): string | null {
+  if (node.type === "Bracket") return combLetter((node as BracketNode).content);
+  if (node.type === "Literal") {
+    const v = (node as LiteralNode).value;
+    return v === "P" || v === "C" || v === "H" ? v : null;
+  }
   return null;
+}
+
+/**
+ * P/C/H(순열·조합·중복조합)에 오른쪽 아래첨자가 붙은 형태인가.
+ * 두 형태 모두 인식: bare `P_{r}`(Subscript(Literal P)), 그리고 프롬프트가 지시하는
+ * `\mathrm{P}_{r}`(apply(mathrm, Subscript(Bracket{P}))). 후자를 놓치면 좌측첨자 접기가
+ * 안 돼 `{ {} }_n rm{ {P} }_r` 처럼 깨진다.
+ */
+function asCombOp(node: ASTNode): { op: string; r: ASTNode } | null {
+  // \mathrm{P}_r → apply(mathrm, Subscript(...)) : 폰트 래퍼를 벗기고 안쪽으로.
+  if (node.type === "BinaryOp" && (node as BinaryOpNode).operator === "apply") {
+    const l = (node as BinaryOpNode).left;
+    if (l.type === "Literal" && ["mathrm", "rm", "text"].includes((l as LiteralNode).value)) {
+      return asCombOp((node as BinaryOpNode).right);
+    }
+    return null;
+  }
+  if (node.type !== "Subscript") return null;
+  const op = combLetter((node as SubscriptNode).base);
+  return op ? { op, r: (node as SubscriptNode).sub } : null;
 }
 
 /**
@@ -180,6 +200,7 @@ export function toHwpEqn(node: ASTNode): string {
       case "Decorated": {
           const d = node as DecoratedNode;
           // 중괄호 인수형: \boxed{ }→box{ }(빈칸), \overbrace/\underbrace 그대로
+          if (d.decoType === "arch") return `arch{${toHwpEqn(d.child)}}`;  // 호(弧)
           if (d.decoType === "boxed") return `box{${toHwpEqn(d.child)}}`;
           if (d.decoType === "overbrace" || d.decoType === "underbrace")
             return `${d.decoType}{${toHwpEqn(d.child)}}`;
