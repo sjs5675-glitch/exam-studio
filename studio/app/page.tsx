@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { UpdatePanel } from "@/components/dashboard/UpdatePanel";
 
 interface Job {
   id: string;
@@ -51,7 +52,7 @@ export default function DashboardPage() {
       {/* Quick start */}
       <div className="grid grid-cols-2 gap-4">
         <Link href="/create">
-          <Card className="hover:border-primary/40 transition-colors cursor-pointer">
+          <Card className="hover:border-primary/40 transition-colors cursor-pointer h-full">
             <CardHeader>
               <CardTitle className="text-lg">시험지 제작</CardTitle>
               <CardDescription>
@@ -60,16 +61,7 @@ export default function DashboardPage() {
             </CardHeader>
           </Card>
         </Link>
-        <Link href="/pdf-cropper">
-          <Card className="hover:border-primary/40 transition-colors cursor-pointer border-dashed">
-            <CardHeader>
-              <CardTitle className="text-lg">PDF 크롭 (테스트)</CardTitle>
-              <CardDescription>
-                PDF 페이지에서 문제 영역을 박스로 선택해 PNG ZIP으로 추출합니다.
-              </CardDescription>
-            </CardHeader>
-          </Card>
-        </Link>
+        <UpdatePanel />
       </div>
 
       {/* System status */}
