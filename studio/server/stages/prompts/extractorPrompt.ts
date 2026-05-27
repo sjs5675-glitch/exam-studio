@@ -89,10 +89,9 @@ const EXTRACTOR_SYSTEM_TEMPLATE = `너는 V3 시험지 문제 추출 전문 에�
 
 ## ⚠ 수식 전송 규칙 (필수)
 
-eq 값(및 explanation_table 의 script 값)은 반드시 센티넬 ${EQ_SENTINEL_OPEN} … ${EQ_SENTINEL_CLOSE} 로 감싸고, 그 안엔 **자연스러운 단일 백슬래시 LaTeX** 를 쓴다. JSON 이스케이프는 신경 쓰지 마라 — 코드가 자동 처리한다.
+eq 값(및 explanation_table 의 script 값)은 반드시 센티넬 ${EQ_SENTINEL_OPEN} … ${EQ_SENTINEL_CLOSE} 로 감싼다. 그 안엔 표준 LaTeX 를 쓰며, 백슬래시 이스케이프는 JSON식 이중(\\\\frac)이든 단일(\\frac)이든 코드가 양쪽 다 처리하니 LaTeX 정확성에만 집중하라.
 - O: {"eq": "${EQ_SENTINEL_OPEN}\\frac{1}{2} + \\sqrt{3}${EQ_SENTINEL_CLOSE}"}
-- X: {"eq": "\\frac{1}{2}"}                          ← 센티넬 없음 → 파싱 실패
-- X: {"eq": "${EQ_SENTINEL_OPEN}\\\\frac{1}{2}${EQ_SENTINEL_CLOSE}"}   ← 백슬래시 두 개 금지 (센티넬 안은 단일)
+- X: {"eq": "\\frac{1}{2}"}                          ← 센티넬 없음 (필수)
 - 모든 명령(\\frac \\sqrt \\mathrm \\leq \\pi \\cdot 등)에 동일. 백슬래시 없는 수식(숫자·변수)도 일관성 위해 센티넬로 감싼다: {"eq": "${EQ_SENTINEL_OPEN}25${EQ_SENTINEL_CLOSE}"}
 
 ## 출력 JSON 형식
@@ -161,7 +160,7 @@ eq 값(및 explanation_table 의 script 값)은 반드시 센티넬 ${EQ_SENTINE
 
 - "bogi": 보기(ㄱ.ㄴ.ㄷ.) 박스. items[*].parts에 내용 채움.
 - "condition": 조건 박스 ((가)(나)(다) 또는 일반 조건). items[*].label + parts.
-- "empty_box": 서술형 빈 답안 박스. height(선택, 기본 5059) 추가 가능.
+- "empty_box": **이미지에 테두리 있는 빈 답안 박스가 실제로 그려져 있을 때만** 사용. 서술형(서답형)이라는 이유만으로 빈 박스를 만들지 말 것 — 박스가 안 보이면 condition_box=null. height(선택, 기본 5059) 추가 가능.
 - "proof": [ 증 명 ] 테이블. items[*].parts에 증명 줄별 내용.
 - "image_choice": 이미지 선지 조건 박스. items 구조.
 - "choice_table": 그리드형 선지 테이블. table_type 필드 필수:
@@ -171,7 +170,7 @@ eq 값(및 explanation_table 의 script 값)은 반드시 센티넬 ${EQ_SENTINE
   - "choice_grid_3cols": (가)(나)(다) 3열 선지. rows 구조.
 
 정답(answer) 필드는 추출하지 않는다.
-이미지에 보기/조건 박스가 보이면 반드시 condition_box를 채운다. null 금지.
+이미지에 보기/조건 박스가 **실제로 보이면** 반드시 condition_box를 채운다. 반대로 박스가 없으면 condition_box=null — 특히 서답형의 빈 답안 공간을 박스로 착각해 empty_box를 만들지 말 것.
 이미지에 표가 있으면 반드시 data_table을 채운다.
 이미지에 조립제법(synthetic division) 표가 있으면 explanation_table.type="synthetic_division"으로 추출한다:
   - degree: 최고차수 (int), n_rows: 행 수 (int), n_cols: 열 수 (int)

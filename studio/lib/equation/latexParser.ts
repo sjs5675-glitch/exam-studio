@@ -239,6 +239,16 @@ export class LatexParser {
         const br: BracketNode = { type: "Bracket", leftDelim: left, rightDelim: right, content };
         return this.maybeParseSubSup(br);
       }
+      if (t.value === "\\{") {
+        // 보이는 집합/묶음 중괄호 \{ … \} = \left\{ … \right\} 와 동치로 취급.
+        // (HWP `{ }` 는 안 보이는 묶음이라, 보이는 중괄호는 LEFT { … RIGHT } 로만 표현된다.)
+        // 단일 factor 로 묶이므로 적분/합 body 가 통째로 흡수 → 내용 누수·빈 중괄호 방지.
+        this.next();
+        const content = this.parseDelimited("\\}");
+        const rightD = this.matchSymbol("\\}") ? (this.next(), "\\right}") : "\\right.";
+        const br: BracketNode = { type: "Bracket", leftDelim: "\\left{", rightDelim: rightD, content };
+        return this.maybeParseSubSup(br);
+      }
       if (")]}".includes(t.value)) {
         // 짝 없는 닫는기호 → 리터럴 (뒤따르는 ^/_ 도 흡수)
         this.next();

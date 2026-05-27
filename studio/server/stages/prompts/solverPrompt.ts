@@ -62,10 +62,9 @@ t 로 남기는 것: 한글·조사·접속사·구두점·"이므로"·"따라�
 
 ## ⚠ 수식 전송 규칙 (필수)
 
-eq 값은 반드시 센티넬 ${EQ_SENTINEL_OPEN} … ${EQ_SENTINEL_CLOSE} 로 감싸고, 그 안엔 **자연스러운 단일 백슬래시 LaTeX** 를 쓴다. JSON 이스케이프는 신경 쓰지 마라 — 코드가 자동 처리한다.
+eq 값은 반드시 센티넬 ${EQ_SENTINEL_OPEN} … ${EQ_SENTINEL_CLOSE} 로 감싼다. 그 안엔 표준 LaTeX 를 쓰며, 백슬래시 이스케이프는 JSON식 이중(\\\\frac)이든 단일(\\frac)이든 코드가 양쪽 다 처리하니 LaTeX 정확성에만 집중하라.
 - O: {"eq": "${EQ_SENTINEL_OPEN}\\frac{1}{2} + \\sqrt{3}${EQ_SENTINEL_CLOSE}"}
-- X: {"eq": "\\frac{1}{2}"}                          ← 센티넬 없음 → 파싱 실패
-- X: {"eq": "${EQ_SENTINEL_OPEN}\\\\frac{1}{2}${EQ_SENTINEL_CLOSE}"}   ← 백슬래시 두 개 금지 (센티넬 안은 단일)
+- X: {"eq": "\\frac{1}{2}"}                          ← 센티넬 없음 (필수)
 - 모든 명령(\\frac \\sqrt \\mathrm \\leq \\pi \\cdot 등)에 동일. 백슬래시 없는 수식(숫자·변수)도 일관성 위해 센티넬로 감싼다: {"eq": "${EQ_SENTINEL_OPEN}3${EQ_SENTINEL_CLOSE}"}
 
 ## 출력 JSON 형식

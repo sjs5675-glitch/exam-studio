@@ -1,7 +1,7 @@
 import type { ProviderTelemetryEntry } from "@/lib/ai/retry";
 import type { ProviderRunResult } from "@/lib/ai/types";
 import type { StageError, ValidationResult } from "./types";
-import { unwrapEquationSentinels } from "./equationSentinel";
+import { buildSentinelCandidates } from "./equationSentinel";
 
 export type ModelOutputValidator<T> = (value: unknown) => ModelOutputValidation<T>;
 
@@ -26,19 +26,20 @@ export interface ModelJsonParseFailure {
 export type ModelJsonParseResult = ParsedModelJson | ModelJsonParseFailure;
 
 export function parseModelJsonOutput(rawOutput: string): ModelJsonParseResult {
-  // 수식 센티넬(<<EQ>>…<</EQ>>) 구간을 파싱 전에 결정론적으로 JSON 이스케이프.
-  // 센티넬이 없는 출력엔 무해(no-op).
-  const candidates = extractJsonCandidates(unwrapEquationSentinels(rawOutput));
-
-  for (const candidate of candidates) {
-    try {
-      return {
-        ok: true,
-        value: JSON.parse(candidate.text),
-        source: candidate.source,
-      };
-    } catch {
-      // Try the next structured candidate before returning a validation error.
+  // 수식 센티넬(<<EQ>>…<</EQ>>) 을 strip/escape 두 방식으로 변환해 순서대로 시도한다.
+  // 모델이 이중 백슬래시(유효 JSON)면 strip, 단일 백슬래시(raw)면 escape 가 정답이며
+  // buildSentinelCandidates 가 `\\` 유무로 우선순위를 정한다. 센티넬이 없으면 둘 다 무해.
+  for (const transformed of buildSentinelCandidates(rawOutput)) {
+    for (const candidate of extractJsonCandidates(transformed)) {
+      try {
+        return {
+          ok: true,
+          value: JSON.parse(candidate.text),
+          source: candidate.source,
+        };
+      } catch {
+        // Try the next structured candidate before returning a validation error.
+      }
     }
   }
 
