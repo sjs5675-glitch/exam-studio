@@ -1,0 +1,212 @@
+import { ASTNode, BinaryOpNode, BracketNode, DecoratedNode, FractionNode, IntegralNode, LiteralNode, RootNode, SubscriptNode, SuperscriptNode, SummationNode, BeginEnvNode, SequenceNode, BinomNode } from "./ast";
+
+/**
+ * LaTeX 명령명 → HWP 수식 토큰이 갈라지는 소수의 경우만 매핑.
+ * (그리스·관계연산·cdot 등 대다수는 TeX 파생이라 그대로 일치하므로 매핑 불필요.)
+ */
+const LITERAL_MAP: Record<string, string> = {
+  // 폰트/구조
+  mathrm: "rm",
+  text: "rm",
+  mathbf: "bold",
+  mathit: "it",
+  // 이름이 갈라지는 기호 (참조 카탈로그 대조로 확정)
+  infty: "inf",
+  ldots: "cdots",
+  dots: "cdots",
+  to: "rightarrow",
+  Rightarrow: "RARROW",
+  Leftarrow: "LARROW",
+  Leftrightarrow: "LRARROW",
+  Longrightarrow: "RARROW",
+  Longleftrightarrow: "LRARROW",
+  iint: "dint",
+  iiint: "tint",
+  bigcup: "union",
+  bigcap: "inter",
+  land: "wedge",
+  lor: "vee",
+  quad: "~",
+  qquad: "~ ~",
+  // 독립(\left 밖) 리터럴 중괄호·set 명령
+  "\\{": "{",
+  "\\}": "}",
+  lbrace: "{",
+  rbrace: "}",
+};
+
+/**
+ * over/sqrt/첨자의 피연산자는 단일 리터럴이 아니면 `{ }` 로 묶어 HWP 결합을 보존한다.
+ * Bracket(절댓값 LEFT|…RIGHT| 포함)도 묶는다 — 안 묶으면 `r^ LEFT|…` 처럼 ^/over 가
+ * 첫 토큰(LEFT)에만 붙어 깨진다.
+ */
+function grp(node: ASTNode): string {
+  const s = toHwpEqn(node);
+  if (node.type === "Literal") return s;
+  return `{ ${s} }`;
+}
+
+/** 빈 base(`{}` 또는 빈 리터럴)에 붙은 아래첨자인가 — 좌측첨자(prescript)의 머리. */
+function isPrescriptHead(node: ASTNode): node is SubscriptNode {
+  if (node.type !== "Subscript") return false;
+  const base = (node as SubscriptNode).base;
+  if (base.type === "Literal") return (base as LiteralNode).value === "";
+  if (base.type === "Bracket") {
+    const c = (base as BracketNode).content;
+    return c.type === "Literal" && (c as LiteralNode).value === "";
+  }
+  return false;
+}
+
+/** P/C/H(순열·조합·중복조합)에 오른쪽 아래첨자가 붙은 형태인가. */
+function asCombOp(node: ASTNode): { op: string; r: ASTNode } | null {
+  if (node.type !== "Subscript") return null;
+  const b = (node as SubscriptNode).base;
+  if (b.type !== "Literal") return null;
+  const v = (b as LiteralNode).value;
+  if (v === "P" || v === "C" || v === "H") return { op: v, r: (node as SubscriptNode).sub };
+  return null;
+}
+
+/**
+ * 좌측첨자(prescript) 접기 — 순열 nPr / 조합 nCr / 중복조합 nHr.
+ * LaTeX `{}_{n}P_{r}` → AST [Subscript(빈base, n), Subscript("P", r)] 를
+ * HWP 정식형 `{rm P}_{r} LSUB {n}` 으로 합친다 (CLAUDE.md 규칙).
+ * `{rm P}` 형태라 equation.py R-08 의 skip-guard 가 걸려 후처리 중복이 없다.
+ */
+function foldPrescripts(items: ASTNode[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const head = items[i];
+    const comb = i + 1 < items.length ? asCombOp(items[i + 1]) : null;
+    if (isPrescriptHead(head) && comb) {
+      const n = toHwpEqn(head.sub);
+      const r = toHwpEqn(comb.r);
+      out.push(`{rm ${comb.op}}_{${r}} LSUB {${n}}`);
+      i++; // P/C/H 항까지 소비
+    } else {
+      out.push(toHwpEqn(head));
+    }
+  }
+  return out;
+}
+
+/**
+ * \left/\right 델리미터 원시표기 → HWP (참조 변환기 되읽기로 검증한 형태).
+ * 집합괄호=리터럴 { }, angle=< >, vert=|, floor/ceil=유니코드 ⌊⌋⌈⌉.
+ */
+const DELIM_HWP: Record<string, string> = {
+  "(": "(", ")": ")", "[": "[", "]": "]", "|": "|", "<": "<", ">": ">", ".": ".",
+  "{": "{", "}": "}", lbrace: "{", rbrace: "}",
+  langle: "<", rangle: ">", vert: "|", lvert: "|", rvert: "|", Vert: "|",
+  lfloor: "⌊", rfloor: "⌋", lceil: "⌈", rceil: "⌉",
+};
+/** 괄호기호 ( ) [ ] | 는 LEFT 에 붙이고(LEFT(), 그 외는 띄운다(LEFT {). */
+function hwpDelim(kw: "LEFT" | "RIGHT", raw: string): string {
+  const d = DELIM_HWP[raw] ?? raw;
+  return "()[]|".includes(d) ? `${kw}${d}` : `${kw} ${d}`;
+}
+
+export function toHwpEqn(node: ASTNode): string {
+  switch (node.type) {
+      case "Literal": {
+          const v = (node as LiteralNode).value;
+          return LITERAL_MAP[v] ?? v;
+      }
+      case "Sequence":
+          return foldPrescripts((node as SequenceNode).items).join(" ");
+      case "BinaryOp": {
+          const b = node as BinaryOpNode;
+          const left = toHwpEqn(b.left);
+          const right = toHwpEqn(b.right);
+          if (b.operator === "apply") {
+              return left + right;
+          }
+          switch (b.operator) {
+              case "times": return `${left} times ${right}`;
+              case "+": case "-": case "/":
+                  return `${left} ${b.operator} ${right}`;
+              default:
+                  return `${left} ${b.operator} ${right}`;
+          }
+      }
+      case "Fraction": {
+          const f = node as FractionNode;
+          const num = grp(f.numerator);
+          const den = grp(f.denominator);
+          return f.withBar ? `${num} over ${den}` : `${num} atop ${den}`;
+      }
+      case "Root": {
+          const r = node as RootNode;
+          // n제곱근: root {n} of {x} (참조 카탈로그 generator base.py:517 / 한컴매뉴얼)
+          if (r.degree) return `root ${grp(r.degree)} of ${grp(r.radicand)}`;
+          return `sqrt ${grp(r.radicand)}`;
+      }
+      case "Binom": {
+          // \binom{n}{k} → {n} choose {k} (조합 ₙCᵣ, 한컴매뉴얼 CHOOSE)
+          const bn = node as BinomNode;
+          return `${grp(bn.upper)} choose ${grp(bn.lower)}`;
+      }
+      case "Superscript": {
+          const s = node as SuperscriptNode;
+          // base 가 복합(루트·분수 등)이면 묶는다: (√x)^2 = { sqrt x }^2
+          return `${grp(s.base)}^${grp(s.exponent)}`;
+      }
+      case "Subscript": {
+          const sb = node as SubscriptNode;
+          return `${grp(sb.base)}_${grp(sb.sub)}`;
+      }
+      case "Integral": {
+          const i = node as IntegralNode;
+          let out = (i.variant === "int") ? "int" : "oint";
+          if (i.lower) out += `_${grp(i.lower)}`;
+          if (i.upper) out += `^${grp(i.upper)}`;
+          if (i.body) {
+              // keep double braces => no flatten
+              out += ` { { ${toHwpEqn(i.body)} } }`;
+          }
+          return out;
+      }
+      case "Summation": {
+          const s = node as SummationNode;
+          let out = "sum";
+          if (s.lower) out += `_${grp(s.lower)}`;
+          if (s.upper) out += `^${grp(s.upper)}`;
+          if (s.body) {
+              out += ` { ${toHwpEqn(s.body)} }`;
+          }
+          return out;
+      }
+      case "Decorated": {
+          const d = node as DecoratedNode;
+          // 중괄호 인수형: \boxed{ }→box{ }(빈칸), \overbrace/\underbrace 그대로
+          if (d.decoType === "boxed") return `box{${toHwpEqn(d.child)}}`;
+          if (d.decoType === "overbrace" || d.decoType === "underbrace")
+            return `${d.decoType}{${toHwpEqn(d.child)}}`;
+          // \overrightarrow/\overleftarrow(벡터) → HWP vec. 나머지 악센트는 이름 일치.
+          const deco = (d.decoType === "overrightarrow" || d.decoType === "overleftarrow") ? "vec" : d.decoType;
+          return `${deco} ${toHwpEqn(d.child)}`;
+      }
+      case "BeginEnv": {
+          // pmatrix{1 & 2 # 3 & 4}, cases{ ... # ... } — 셀은 이미 Sequence 로 묶여 옴.
+          const be = node as BeginEnvNode;
+          const rowStrs = be.rows.map(r => r.map(toHwpEqn).join(" & ")).join(" # ");
+          return `${be.envName}{${rowStrs}}`;
+      }
+      case "Bracket": {
+          const br = node as BracketNode;
+          const content = toHwpEqn(br.content);
+          if (br.leftDelim.startsWith("\\left") || br.rightDelim.startsWith("\\right")) {
+              const left = br.leftDelim.startsWith("\\left")
+                ? hwpDelim("LEFT", br.leftDelim.slice(5)) : "";
+              const right = br.rightDelim.startsWith("\\right")
+                ? hwpDelim("RIGHT", br.rightDelim.slice(6)) : "";
+              return ` ${left} ${content} ${right}`;
+          }
+          // 평범한 ( ) [ ] { } 그룹
+          return `${br.leftDelim}${content}${br.rightDelim}`;
+      }
+      default:
+          return "";
+  }
+}
