@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { UpdatePanel } from "@/components/dashboard/UpdatePanel";
+import { CacheResetButton } from "@/components/dashboard/CacheResetButton";
 
 interface Job {
   id: string;
@@ -66,7 +67,10 @@ export default function DashboardPage() {
 
       {/* System status */}
       <Card className="p-4">
-        <h3 className="text-sm font-medium mb-3">시스템 상태</h3>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-medium">시스템 상태</h3>
+          <CacheResetButton />
+        </div>
         <div className="space-y-2 text-sm">
           <ProviderStatusRow
             label="Claude Code"

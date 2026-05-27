@@ -22,7 +22,7 @@ interface UpdateStatus {
   error?: string;
 }
 
-type Phase = "checking" | "idle" | "updating" | "done" | "update-failed";
+type Phase = "checking" | "idle" | "updating" | "restarting" | "done" | "update-failed";
 
 function formatDate(iso?: string): string {
   if (!iso) return "";
@@ -60,12 +60,33 @@ export function UpdatePanel() {
     try {
       const r = await fetch("/api/update", { method: "POST" });
       const d = await r.json();
-      if (d.ok) {
-        setPhase("done");
-      } else {
+      if (!d.ok) {
         setUpdateError(d.error ?? "업데이트에 실패했습니다.");
         setPhase("update-failed");
+        return;
       }
+      if (d.restarting) {
+        // 서버가 곧 재시작된다(런처가 ~2초 뒤 포트 kill 후 재기동). 복귀를 폴링해 새로고침.
+        setPhase("restarting");
+        await new Promise((res) => setTimeout(res, 4000)); // 옛 서버가 죽기를 먼저 대기
+        for (let i = 0; i < 60; i++) {
+          try {
+            const ping = await fetch("/api/update", { method: "GET", cache: "no-store" });
+            if (ping.ok) {
+              window.location.reload();
+              return;
+            }
+          } catch {
+            // 재시작 중 — 연결 실패는 정상, 계속 폴링
+          }
+          await new Promise((res) => setTimeout(res, 2000));
+        }
+        setUpdateError("재시작이 예상보다 오래 걸립니다. 잠시 후 페이지를 새로고침해 주세요.");
+        setPhase("update-failed");
+        return;
+      }
+      // 자동 재시작이 트리거되지 않음(런처 부재 등) → 수동 재시작 안내
+      setPhase("done");
     } catch {
       setUpdateError("업데이트 중 오류가 발생했습니다. 인터넷 연결을 확인해 주세요.");
       setPhase("update-failed");
@@ -158,6 +179,18 @@ export function UpdatePanel() {
             </div>
             <p className="text-xs text-muted-foreground">
               몇 분 걸릴 수 있어요. 이 창을 닫지 마세요.
+            </p>
+          </div>
+        )}
+
+        {phase === "restarting" && (
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-sm">
+              <Loader2 className="size-4 animate-spin" />
+              새 버전으로 재시작 중입니다...
+            </div>
+            <p className="text-xs text-muted-foreground">
+              자동으로 다시 연결됩니다. 이 창을 닫지 말고 잠시만 기다려 주세요.
             </p>
           </div>
         )}

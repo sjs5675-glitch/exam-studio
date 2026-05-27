@@ -24,11 +24,13 @@ mkdir -p "$ROOT/.logs"
 nohup pnpm dev:sse > "$ROOT/.logs/sse.log" 2>&1 &  disown
 nohup pnpm dev     > "$ROOT/.logs/next.log" 2>&1 & disown
 
-# 서버 준비되면 브라우저 오픈
+# 서버 준비되면 브라우저 오픈 (업데이트 재시작 시엔 EXAM_STUDIO_NO_OPEN=1 → 생략, 프론트가 같은 탭 새로고침)
+if [ "$EXAM_STUDIO_NO_OPEN" != "1" ]; then
 ( for _ in $(seq 1 90); do
     curl -s http://localhost:3020 >/dev/null 2>&1 && { open "http://localhost:3020"; break; }
     sleep 1
   done ) &
+fi
 
 echo "Exam Studio 백그라운드 실행 중  →  http://localhost:3020"
 echo "로그: $ROOT/.logs/   |  중지:  lsof -ti tcp:3020 tcp:3021 | xargs kill"

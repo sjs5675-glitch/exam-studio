@@ -52,6 +52,7 @@ For i = 1 To 90
     End If
 Next
 
-If ready Then WshShell.Run "http://localhost:3020"
+' 업데이트 재시작 시엔 EXAM_STUDIO_NO_OPEN=1 → 브라우저 재오픈 생략(프론트가 같은 탭 새로고침)
+If ready And WshShell.ExpandEnvironmentStrings("%EXAM_STUDIO_NO_OPEN%") <> "1" Then WshShell.Run "http://localhost:3020"
 
 ' 스크립트 종료 — 서버는 백그라운드에서 계속 실행됩니다.
