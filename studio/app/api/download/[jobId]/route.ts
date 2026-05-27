@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { readFile } from "fs/promises";
 import path from "path";
 import { existsSync } from "fs";
+import { getDataRoot, getJobsDir } from "@/lib/server/paths";
 
-const BASE_DIR = path.resolve(process.cwd(), "..");
-const DATA_DIR = path.join(process.cwd(), "data/jobs");
+const BASE_DIR = getDataRoot();
+const DATA_DIR = getJobsDir();
 
 export async function GET(
   _req: NextRequest,

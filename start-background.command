@@ -14,6 +14,9 @@ fi
 # .venv(파이썬 의존성)를 PATH 에 추가 — spawn 되는 python3 가 .venv 를 쓰도록
 [ -d "$ROOT/.venv/bin" ] && export PATH="$ROOT/.venv/bin:$PATH"
 
+# 데이터 루트 고정 — 서버 실행 위치 무관하게 API가 outputs/inputs 를 찾도록
+export EXAM_STUDIO_ROOT="$ROOT"
+
 # 기존 포트 정리
 for p in 3020 3021; do lsof -ti "tcp:$p" 2>/dev/null | xargs kill 2>/dev/null || true; done
 

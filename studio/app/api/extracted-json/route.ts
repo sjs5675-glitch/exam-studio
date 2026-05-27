@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readFile, writeFile, mkdir } from "fs/promises";
 import path from "path";
+import { getDataRoot } from "@/lib/server/paths";
 
-const BASE_DIR = path.resolve(process.cwd(), "..");
+const BASE_DIR = getDataRoot();
 const CACHE_DIR = path.join(BASE_DIR, "inputs", "시험지 제작", ".v3cache");
 
 function jsonPath(qNum: number) {

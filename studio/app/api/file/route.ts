@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { readFile } from "fs/promises";
 import path from "path";
 import { existsSync } from "fs";
+import { getDataRoot } from "@/lib/server/paths";
 
-const BASE_DIR = path.resolve(process.cwd(), "..");
+const BASE_DIR = getDataRoot();
 
 const MIME_TYPES: Record<string, string> = {
   ".png": "image/png",

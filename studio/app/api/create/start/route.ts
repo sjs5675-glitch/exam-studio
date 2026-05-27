@@ -5,8 +5,9 @@ import type { ExamMetaInput } from "@/lib/exam/meta";
 import { preflightProviders } from "@/lib/ai/preflight";
 import { normalizeStageOverrides } from "@/lib/ai/settings";
 import type { AIProviderId } from "@/lib/ai/types";
+import { getDataRoot } from "@/lib/server/paths";
 
-const BASE_DIR = path.resolve(process.cwd(), "..");
+const BASE_DIR = getDataRoot();
 const EXAM_DIR = path.join(BASE_DIR, "inputs", "시험지 제작");
 const CACHE_DIR = path.join(EXAM_DIR, ".v3cache");
 const IMAGES_DIR = path.join(EXAM_DIR, "question_images");

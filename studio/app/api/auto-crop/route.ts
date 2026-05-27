@@ -4,11 +4,12 @@ import { promisify } from "util";
 import path from "path";
 import { readRuntimeEnv } from "@/lib/server/runtimeEnv";
 import { normalizePdfRotation } from "@/lib/cropper/coords";
+import { getDataRoot } from "@/lib/server/paths";
 
 export const maxDuration = 180;
 
 const execFileAsync = promisify(execFile);
-const BASE_DIR = path.resolve(process.cwd(), "..");
+const BASE_DIR = getDataRoot();
 
 export async function POST(req: NextRequest) {
   try {

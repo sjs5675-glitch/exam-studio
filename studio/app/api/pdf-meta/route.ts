@@ -5,9 +5,10 @@ import path from "path";
 import { readFile } from "fs/promises";
 import { readPdfMetaFromBuffer } from "@/lib/pdf/pdfMeta";
 import { normalizePdfRotation } from "@/lib/cropper/coords";
+import { getDataRoot } from "@/lib/server/paths";
 
 const execFileAsync = promisify(execFile);
-const BASE_DIR = path.resolve(process.cwd(), "..");
+const BASE_DIR = getDataRoot();
 
 export async function POST(req: NextRequest) {
   try {

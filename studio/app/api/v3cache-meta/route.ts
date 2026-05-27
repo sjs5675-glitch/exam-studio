@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { readFile, stat } from "fs/promises";
 import path from "path";
 import type { ExamMetaInput } from "@/lib/exam/meta";
+import { getDataRoot } from "@/lib/server/paths";
 
-const BASE_DIR = path.resolve(process.cwd(), "..");
+const BASE_DIR = getDataRoot();
 const EXAM_DIR = path.join(BASE_DIR, "inputs", "시험지 제작");
 const CACHE_DIR = path.join(EXAM_DIR, ".v3cache");
 const SESSION_META_PATH = path.join(CACHE_DIR, "session_meta.json");

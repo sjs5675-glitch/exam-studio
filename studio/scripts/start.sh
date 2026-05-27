@@ -10,6 +10,9 @@ REPO_ROOT="$(dirname "$PROJECT_DIR")"
 
 cd "$PROJECT_DIR"
 
+# 데이터 루트를 명시적으로 고정 — 서버 실행 위치가 달라도 API가 outputs/inputs 를 찾도록
+export EXAM_STUDIO_ROOT="$REPO_ROOT"
+
 # .venv(파이썬 의존성)를 PATH 앞에 추가 — spawn 되는 python3 가 .venv 를 쓰도록
 [ -d "$REPO_ROOT/.venv/bin" ] && export PATH="$REPO_ROOT/.venv/bin:$PATH"
 

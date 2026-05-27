@@ -31,6 +31,8 @@ End If
 ' 'pnpm.cmd 없음' 으로 실패한다 — 재부팅 없이도 동작하도록 직접 보강한다.
 pathPrefix = "set ""PATH=%APPDATA%\npm;%PATH%"" && "
 If fso.FolderExists(venvBin) Then pathPrefix = pathPrefix & "set ""PATH=" & venvBin & ";%PATH%"" && "
+' 데이터 루트 고정 — 서버 실행 위치 무관하게 API가 outputs/inputs 를 찾도록
+pathPrefix = pathPrefix & "set ""EXAM_STUDIO_ROOT=" & rootDir & """ && "
 
 ' 기존 포트 프로세스 정리
 WshShell.Run "cmd /c for /f ""tokens=5"" %a in ('netstat -ano 2^>nul ^| findstr "":3020"" ^| findstr ""LISTENING""') do taskkill /pid %a /f >nul 2>nul", 0, True

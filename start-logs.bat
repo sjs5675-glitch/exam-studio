@@ -28,6 +28,9 @@ REM 방금 Node/pnpm 을 설치한 직후엔 이미 떠 있던 Explorer 가 옛 
 REM 'pnpm.cmd 없음' 으로 실패한다 — 재부팅 없이도 동작하도록 직접 보강한다.
 set "PATH=%APPDATA%\npm;%PATH%"
 
+REM 데이터 루트 고정 — 서버 실행 위치 무관하게 API가 outputs/inputs 를 찾도록 (자식 cmd가 상속)
+set "EXAM_STUDIO_ROOT=%~dp0"
+
 REM 기존 포트 정리
 for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr ":3020" ^| findstr "LISTENING"') do taskkill /pid %%a /f >nul 2>nul
 for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr ":3021 " ^| findstr "LISTENING"') do taskkill /pid %%a /f >nul 2>nul

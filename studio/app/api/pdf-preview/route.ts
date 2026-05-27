@@ -5,9 +5,10 @@ import { readFile, mkdir, access } from "fs/promises";
 import path from "path";
 import crypto from "crypto";
 import { normalizePdfRotation } from "@/lib/cropper/coords";
+import { getDataRoot } from "@/lib/server/paths";
 
 const execFileAsync = promisify(execFile);
-const BASE_DIR = path.resolve(process.cwd(), "..");
+const BASE_DIR = getDataRoot();
 const CACHE_DIR = path.join(BASE_DIR, "outputs", ".pdf-preview-cache");
 
 export async function POST(req: NextRequest) {

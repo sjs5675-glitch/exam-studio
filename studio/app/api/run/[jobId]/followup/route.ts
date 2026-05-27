@@ -3,6 +3,7 @@ import { type SSEEvent } from "@/lib/claude";
 import { readFile, writeFile, readdir } from "fs/promises";
 import path from "path";
 import { existsSync } from "fs";
+import { getDataRoot, getJobsDir } from "@/lib/server/paths";
 import { runStageOrchestrator, type OrchestratorResult } from "@/server/stages/orchestrator";
 import { normalizeStageOverrides, isImageProviderId, type StageOverrideMap, type ImageProviderId } from "@/lib/ai/settings";
 import { normalizeProviderId, type AIProviderId } from "@/lib/ai";
@@ -46,8 +47,8 @@ function stopAfterFor(stage: ResumeStage): StopAfter {
   }
 }
 
-const DATA_DIR = path.join(process.cwd(), "data/jobs");
-const BASE_DIR = path.resolve(process.cwd(), "..");
+const DATA_DIR = getJobsDir();
+const BASE_DIR = getDataRoot();
 
 interface ResumeArgs {
   /** Stage to resume from (e.g. "figure", "builder") */
