@@ -48,3 +48,6 @@ studio/.env.local
 # claude phase-skills runtime logs
 .claude/phase-run-edits.log
 .claude/phase-run-sessions.log
+
+# equation oracle 회귀 코퍼스 (PNKLMS 파생 사유 데이터 — 절대 커밋 금지, 로컬 전용)
+.equation-oracle/
