@@ -1,6 +1,7 @@
 import type { ProviderTelemetryEntry } from "@/lib/ai/retry";
 import type { ProviderRunResult } from "@/lib/ai/types";
 import type { StageError, ValidationResult } from "./types";
+import { unwrapEquationSentinels } from "./equationSentinel";
 
 export type ModelOutputValidator<T> = (value: unknown) => ModelOutputValidation<T>;
 
@@ -25,7 +26,9 @@ export interface ModelJsonParseFailure {
 export type ModelJsonParseResult = ParsedModelJson | ModelJsonParseFailure;
 
 export function parseModelJsonOutput(rawOutput: string): ModelJsonParseResult {
-  const candidates = extractJsonCandidates(rawOutput);
+  // 수식 센티넬(<<EQ>>…<</EQ>>) 구간을 파싱 전에 결정론적으로 JSON 이스케이프.
+  // 센티넬이 없는 출력엔 무해(no-op).
+  const candidates = extractJsonCandidates(unwrapEquationSentinels(rawOutput));
 
   for (const candidate of candidates) {
     try {

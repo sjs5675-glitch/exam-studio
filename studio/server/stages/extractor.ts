@@ -12,6 +12,7 @@ import {
 import type { ModelStageResult } from "./model";
 import type { ExamMeta } from "./prompts/extractorPrompt";
 import { buildExtractorPrompt } from "./prompts/extractorPrompt";
+import { convertProblemEquations } from "@/lib/equation/convertProblemEquations";
 
 export type { ExamMeta };
 
@@ -128,7 +129,9 @@ export async function runExtractorStage(
 
   await input.cache.ensureCacheDir();
   const outputPath = input.cache.extractorResultPath(input.questionNumber);
-  const sanitized = sanitizeExtractedChoices(validation.output);
+  // 프롬프트가 LaTeX 로 출력 → 캐시에 쓰기 전 HWP 수식으로 변환 (R-01~R-10 후처리는 equation.py).
+  const converted = convertProblemEquations(validation.output);
+  const sanitized = sanitizeExtractedChoices(converted);
   await writeFile(outputPath, `${JSON.stringify(sanitized, null, 2)}\n`, "utf8");
 
   return {

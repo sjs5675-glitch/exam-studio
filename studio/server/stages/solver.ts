@@ -14,6 +14,7 @@ import type { ModelStageResult, ModelStageRunner } from "./model";
 import { buildSolverPrompt } from "./prompts/solverPrompt";
 import type { ExamMeta } from "./prompts/extractorPrompt";
 import { normalizeParts } from "@/lib/parts/normalize";
+import { convertProblemEquations } from "@/lib/equation/convertProblemEquations";
 
 export type SolverExplanationPart =
   | { t: string }
@@ -86,9 +87,11 @@ export async function runSolverStage(input: SolverStageInput): Promise<ModelStag
     return toSolverValidationFailure(validationFailure("solver_validation_failed", validation.message, validation.details), providerResult.metadata, startedAt);
   }
 
+  // 프롬프트가 LaTeX 로 출력 → HWP 변환 후 R-01~R-10 정규화.
+  const converted = convertProblemEquations(validation.output) as typeof validation.output;
   const normalized: SolverStageOutput = {
-    ...validation.output,
-    explanation_parts: normalizeParts(validation.output.explanation_parts) as SolverExplanationPart[],
+    ...converted,
+    explanation_parts: normalizeParts(converted.explanation_parts) as SolverExplanationPart[],
   };
 
   await input.cache.ensureCacheDir();

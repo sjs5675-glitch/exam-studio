@@ -6,6 +6,7 @@
  */
 
 import type { ExamMetaInput, SchoolLevel } from "@/lib/exam/meta";
+import { EQ_SENTINEL_OPEN, EQ_SENTINEL_CLOSE } from "../equationSentinel";
 
 /** ExamMeta for prompt builders — subset of ExamMetaInput used in prompts. */
 export type ExamMeta = Pick<ExamMetaInput, "schoolLevel" | "school" | "year" | "grade" | "subject" | "semester" | "examType" | "range">;
@@ -22,36 +23,39 @@ const EXTRACTOR_SYSTEM_TEMPLATE = `너는 V3 시험지 문제 추출 전문 에�
 
 - 이미지를 직접 보고 추출 — 텍스트 변환이 아닌 이미지 인식
 - 한 문제만 처리 — 이미지 1장 = 문제 1개
-- 수식은 HWP 수식 문법으로 변환 (아래 규칙 준수)
+- 수식은 표준 LaTeX 문법으로 작성 (아래 규칙 준수). HWP 변환은 코드가 자동 처리한다.
 - 모든 수학적 표현은 수식으로 — 숫자, 변수, 함수명, 영문자 모두 포함
 - 읽을 수 없는 내용은 [UNCLEAR] 표기 — 절대 추측하거나 창작하지 않는다
 - 해설은 추출하지 않는다 — solver 에이전트가 담당
 
 ## 수식 범위 규칙 (매우 중요!)
 
-HWPX에서는 모든 수학적 내용이 <hp:equation>으로 들어간다. 다음은 모두 수식으로 추출해야 한다:
+모든 수학적 내용은 수식(eq)으로 들어간다. 다음은 모두 LaTeX 수식으로 추출해야 한다:
 
 - 단순 숫자 (선지): 1 → "1", 25 → "25"
 - 변수 1개: x → "x", a → "a"
 - 배점: 3.6점 → "3.6"
-- 수학 표현: x+y=3 → "x + y = 3"
-- 분수: 3/4 → "3 over 4"
-- 루트: √8 → "root 3 of 8"
-- 조건: 0≤x≤π → "0 leq x leq pi"
-- 각도: -690° → "-690DEG"
-- 좌표: (0, 1) → "(0,~1)"
-- cdots: ⋯ → "\`cdots\`"
-- 영문자 (본문): 점 A → "rmA", 직선 l → "l"
-- 영단어: classic → "rm classic"
-- 개별 스펠링: c → "rm c", l → "rm l"
+- 수학 표현: x+y=3 → "x+y=3"
+- 분수: 3/4 → "\\frac{3}{4}"
+- 루트: √8 → "\\sqrt{8}", ∛8 → "\\sqrt[3]{8}"
+- 조건: 0≤x≤π → "0 \\leq x \\leq \\pi"
+- 각도: -690° → "-690^\\circ"
+- 좌표: (0, 1) → "(0, 1)"
+- cdots: ⋯ → "\\cdots"
+- 영문자 (본문): 점 A → "\\mathrm{A}", 직선 l → "l"
+- 영단어: classic → "\\mathrm{classic}"
+- 개별 스펠링: c → "\\mathrm{c}", l → "\\mathrm{l}"
 - 본문 숫자: 3개 → "3", 제1사분면 → "1"
 - 함수명: f(x) → "f(x)", g(2) → "g(2)"
-- 집합: A∩B → "rmA cap rmB"
-- 점/도형: 점 P → "rmP", 삼각형 ABC → "triangle rmABC"
+- 집합: A∩B → "\\mathrm{A} \\cap \\mathrm{B}"
+- 점/도형: 점 P → "\\mathrm{P}", 삼각형 ABC → "\\triangle \\mathrm{ABC}"
+- 절댓값: |x-1| → "\\left| x-1 \\right|"
+- 벡터: 벡터 AB → "\\overrightarrow{\\mathrm{AB}}"
+- 순열/조합: ₙPᵣ → "{}_{n}\\mathrm{P}_{r}", ₙCᵣ → "{}_{n}\\mathrm{C}_{r}"
 
 수식이 되어야 하는 것:
 - 문제 본문에 나오는 모든 영어 알파벳 (변수, 점, 함수명, 도형명)
-- 문제 본문에 나오는 모든 영단어 (예: classic → "rm classic")
+- 문제 본문에 나오는 모든 영단어 (예: classic → "\\mathrm{classic}")
 - 개별 영문 스펠링
 - 문제 본문에 나오는 모든 숫자 (개수, 순서, 값)
 - 선지의 모든 값 (단순 숫자 포함)
@@ -61,32 +65,13 @@ HWPX에서는 모든 수학적 내용이 <hp:equation>으로 들어간다. 다�
 텍스트로 남기는 것: 한글, 조사, 접속사, 구두점, "의 값은?", "을 구하시오" 등 순수 한국어 문장만
 - 원숫자(①②③④⑤)는 문제 본문/풀이/조건에 등장할 때만 텍스트로 유지한다. 선지(choices) 앞에는 절대 포함하지 않는다 (아래 choices 명세 참고).
 
-## 수식 연산자 띄어쓰기 규칙
+## LaTeX 작성 규칙
 
-공백 필수 연산자: "+", "-", "=", "!=", "<", ">", "leq", "geq", "over", "times", "cdot"
-- 4^3=64 → "4^3 = 64" (= 앞뒤 공백)
-- x+y=3 → "x + y = 3"
-
-예외 (공백 생략 가능):
-- 괄호 안의 음수 부호: "(-3)"
-- 지수 안의 연산: "2^{n-1}"
-- it 접두 음수: "x < it-2"
-
-## 수식 표기 규칙
-
-### DEG (각도)
-- 숫자에 붙여쓴다: "60DEG" (O), "60 DEG" (X)
-
-### LEFT / RIGHT (큰 괄호)
-- 대문자 + 공백: "LEFT (" "RIGHT )" 사용
-
-### sqrt vs root
-- "sqrt" = 제곱근 (√): "sqrt 2" → √2
-- "root N of" = N제곱근: "root 3 of 8" → ∛8
-
-### 순열/조합
-- "{it\`_n}{rm C}_{it r}", "{it\`_n}{rm P}_{it r}"
-- "_"로 시작하는 수식 금지 → 한컴 렌더링 실패
+- 표준 LaTeX 명령만 사용: \\frac \\sqrt \\sum \\int \\lim \\frac \\left \\right \\leq \\geq \\cdot \\times \\pi \\alpha \\sin \\cos \\log 등.
+- 분수는 \\frac{분자}{분모}, 거듭제곱근은 \\sqrt[n]{x}, 큰 괄호는 \\left( ... \\right).
+- 로마자 정자체(점·도형·단위·함수표기)는 \\mathrm{...}: 점 A → "\\mathrm{A}", 단위 kg → "\\mathrm{kg}".
+- 띄어쓰기·연산자 간격은 신경 쓰지 않아도 된다 (코드가 자동 정규화). 수학적으로 올바른 LaTeX 면 충분하다.
+- 순열·조합은 좌측 아래첨자형으로: "{}_{n}\\mathrm{P}_{r}", "{}_{n}\\mathrm{C}_{r}".
 
 ## 중단원(subtopic) 분류 규칙 ({{CLASSIFICATION_DESC}})
 
@@ -101,6 +86,14 @@ HWPX에서는 모든 수학적 내용이 <hp:equation>으로 들어간다. 다�
 - 상: 심화 응용, 상위권만 맞힘
 - 킬: 최고난도, 상위 5% 이내만 맞힘
 - "최상"은 사용하지 않는다 — 반드시 하/중/상/킬 중 하나
+
+## ⚠ 수식 전송 규칙 (필수)
+
+eq 값(및 explanation_table 의 script 값)은 반드시 센티넬 ${EQ_SENTINEL_OPEN} … ${EQ_SENTINEL_CLOSE} 로 감싸고, 그 안엔 **자연스러운 단일 백슬래시 LaTeX** 를 쓴다. JSON 이스케이프는 신경 쓰지 마라 — 코드가 자동 처리한다.
+- O: {"eq": "${EQ_SENTINEL_OPEN}\\frac{1}{2} + \\sqrt{3}${EQ_SENTINEL_CLOSE}"}
+- X: {"eq": "\\frac{1}{2}"}                          ← 센티넬 없음 → 파싱 실패
+- X: {"eq": "${EQ_SENTINEL_OPEN}\\\\frac{1}{2}${EQ_SENTINEL_CLOSE}"}   ← 백슬래시 두 개 금지 (센티넬 안은 단일)
+- 모든 명령(\\frac \\sqrt \\mathrm \\leq \\pi \\cdot 등)에 동일. 백슬래시 없는 수식(숫자·변수)도 일관성 위해 센티넬로 감싼다: {"eq": "${EQ_SENTINEL_OPEN}25${EQ_SENTINEL_CLOSE}"}
 
 ## 출력 JSON 형식
 
@@ -117,8 +110,8 @@ HWPX에서는 모든 수학적 내용이 <hp:equation>으로 들어간다. 다�
     "position": "right" | "center" | "below",
     "crop_ratio": [left, top, right, bottom]
   } | null,
-  "parts": [{"t": "텍스트"} | {"eq": "HWP수식"}],
-  "choices": [[{"t": "텍스트"} | {"eq": "수식"}], ...] | null,
+  "parts": [{"t": "텍스트"} | {"eq": "${EQ_SENTINEL_OPEN}LaTeX수식${EQ_SENTINEL_CLOSE}"}],
+  "choices": [[{"t": "텍스트"} | {"eq": "${EQ_SENTINEL_OPEN}LaTeX수식${EQ_SENTINEL_CLOSE}"}], ...] | null,
   // ⚠ 각 선지에 ①②③④⑤ prefix를 절대 포함하지 않는다.
   //   builder가 자동으로 번호를 부여하므로, 포함하면 "① ① 값" 중복 및 5행 강제 레이아웃 버그가 발생한다.
   //   예) ① -20  →  [{"eq": "-20"}]            (O)
