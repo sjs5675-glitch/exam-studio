@@ -53,17 +53,22 @@ export const unwrapEquationSentinels = escapeEquationSentinels;
 
 /**
  * 파싱 시도 순서가 정해진 변환 후보들을 반환한다.
- * 센티넬 구간에 `\\`(이중 백슬래시)가 하나라도 있으면 모델이 JSON 이스케이프를 한 것으로 보고
- * strip 을 먼저(=정답), 아니면 단일 백슬래시 raw 로 보고 escape 를 먼저 시도한다.
- * 나머지 하나는 첫 변환의 파싱 실패 시 폴백.
+ * 판단 기준 = 센티넬 구간에서 **글자 앞 백슬래시 run 의 길이**:
+ *   - 홀수(예: `\frac` = 백슬래시 1개)가 하나라도 있으면 모델이 단일 백슬래시 raw LaTeX 를 쓴 것
+ *     → escape 먼저(정답), strip 폴백.
+ *   - 모두 짝수(예: `\\frac` = 2개)면 모델이 JSON 이스케이프(유효 JSON)한 것 → strip 먼저, escape 폴백.
+ * 명령 백슬래시의 패리티만 보므로 줄바꿈 `\\`(글자 앞이 아님)에 휘둘리지 않는다. 첫 변환의 JSON
+ * 파싱이 실패하면 다른 쪽으로 폴백한다.
  */
 export function buildSentinelCandidates(raw: string): string[] {
-  let doubled = false;
+  let single = false;
   raw.replace(EQ_SPAN, (match, inner: string) => {
-    if (inner.includes("\\\\")) doubled = true;
+    for (const m of inner.matchAll(/(\\+)[A-Za-z]/g)) {
+      if (m[1].length % 2 === 1) { single = true; break; }
+    }
     return match;
   });
   const stripped = stripEquationSentinels(raw);
   const escaped = escapeEquationSentinels(raw);
-  return doubled ? [stripped, escaped] : [escaped, stripped];
+  return single ? [escaped, stripped] : [stripped, escaped];
 }
