@@ -1,45 +1,6 @@
 import { NextResponse } from "next/server";
 import crossSpawn from "cross-spawn";
-import { existsSync } from "fs";
-import path from "path";
 import { getDataRoot } from "@/lib/server/paths";
-
-/**
- * 업데이트 후 서버(Next 3020 + sse 3021)를 재시작한다.
- *
- * 파이프라인은 `tsx server/sse.ts` 프로세스에서 도는데 hot-reload 가 없어,
- * 재시작 없이는 git reset 으로 받은 새 코드(프롬프트·전송 등)가 적용되지 않는다.
- * 기존 런처(start-background.*)가 이미 "포트 kill 후 재기동" 을 하므로, 응답이
- * 나간 뒤 잠시 대기했다가 런처를 detached 로 재실행한다(EXAM_STUDIO_NO_OPEN=1 로
- * 브라우저 재오픈은 생략 — 프론트가 같은 탭을 새로고침한다).
- *
- * 반환값: 재시작 트리거 성공 여부(런처 부재 등으로 실패하면 false → 수동 재시작 안내).
- */
-function scheduleServerRestart(root: string): boolean {
-  const isWin = process.platform === "win32";
-  const launcher = path.join(root, isWin ? "start-background.vbs" : "start-background.command");
-  if (!existsSync(launcher)) return false;
-  const env = { ...process.env, EXAM_STUDIO_NO_OPEN: "1" };
-  try {
-    if (isWin) {
-      crossSpawn("cmd", ["/c", `timeout /t 2 /nobreak >nul & wscript "${launcher}"`], {
-        detached: true,
-        stdio: "ignore",
-        windowsHide: true,
-        env,
-      }).unref();
-    } else {
-      crossSpawn("bash", ["-c", `sleep 2; exec bash ${JSON.stringify(launcher)}`], {
-        detached: true,
-        stdio: "ignore",
-        env,
-      }).unref();
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 interface RunResult {
   code: number;
@@ -220,13 +181,14 @@ export async function POST() {
 
   const cur = await run("git", ["log", "-1", "--format=%h|%cI|%s"], root, 10000);
 
-  // 새 코드가 실제로 적용되려면 서버 재시작이 필수(tsx sse 는 hot-reload 없음).
-  const restarting = scheduleServerRestart(root);
-
+  // 자동 재시작 일시 비활성화: Windows 에서 백그라운드 서버 프로세스가 wscript 런처를
+  // 재실행하면 "Windows Script Host 메모리 리소스 부족" 으로 실패하며, 그 전에 런처가
+  // 포트(3020/3021)를 kill 해 sse 서버가 죽은 채 복구 못 하는 회귀가 확인됨.
+  // 검증된 재시작 메커니즘 마련 전까지 restarting:false → 프론트가 수동 재시작을 안내.
   return NextResponse.json({
     ok: true,
     restartRequired: true,
-    restarting,
+    restarting: false,
     current: parseCommits(cur.stdout)[0] ?? null,
   });
 }
