@@ -21,7 +21,7 @@ export interface BuilderStageInput {
 }
 
 export interface BuilderCommandSummary {
-  name: "build_hwpx" | "fix_namespaces" | "validate_hwpx";
+  name: "build_hwpx" | "fix_namespaces" | "normalize_hancom" | "validate_hwpx";
   status: StageCommandResult["status"];
   exitCode: number | null;
   elapsedMs: number;
@@ -89,6 +89,15 @@ export async function runBuilderStage(input: BuilderStageInput): Promise<StageRe
     commands.push(toSummary("fix_namespaces", fix));
     throwIfCommandFailed(fix);
 
+    const normalize = await runCommand({
+      command: python,
+      args: [scripts.normalizeHancom, hwpxPath],
+      cwd: input.baseDir,
+      timeoutMs,
+    });
+    commands.push(toSummary("normalize_hancom", normalize));
+    throwIfCommandFailed(normalize);
+
     const validate = await runCommand({
       command: python,
       args: [scripts.validateHwpx, hwpxPath, "--fix"],
@@ -140,11 +149,13 @@ export async function runBuilderStage(input: BuilderStageInput): Promise<StageRe
 export function resolveBuilderScripts(baseDir: string): {
   buildHwpx: string;
   fixNamespaces: string;
+  normalizeHancom: string;
   validateHwpx: string;
 } {
   return {
     buildHwpx: path.join(baseDir, "build_hwpx.py"),
     fixNamespaces: path.join(baseDir, "resources", "hwpx_scripts", "fix_namespaces.py"),
+    normalizeHancom: path.join(baseDir, "resources", "hwpx_scripts", "normalize_hancom.py"),
     validateHwpx: path.join(baseDir, "resources", "hwpx_scripts", "validate.py"),
   };
 }

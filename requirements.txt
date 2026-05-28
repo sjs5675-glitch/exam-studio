@@ -12,3 +12,6 @@ Pillow>=10.0
 # only needed when the figure stage uses the Gemini ("nano-banana") provider.
 google-genai>=0.3
 google-generativeai>=0.8
+
+# Hancom HWP COM automation for HWPX normalization on Windows.
+pywin32>=306; platform_system=="Windows"

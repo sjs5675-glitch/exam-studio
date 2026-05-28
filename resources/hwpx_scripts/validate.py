@@ -9,13 +9,47 @@ HWPX XML 검증 + 자동수정 스크립트
   4. zOrder 중복
   5. 태그 균형 (XML 파싱 실패 시 보조 진단)
   6. content.hpf 매니페스트 일치
-  7. 다중 lineSegArray 금지 (한글 경고 방지)
+  7. 긴 문단의 단일 lineSegArray 감지 (겹침 방지)
 
 사용법:
   python validate.py <file.hwpx> [--fix]
 """
 
 import zipfile, re, sys, os
+
+
+def _estimate_text_units(text):
+    total = 0
+    for ch in text or "":
+        code = ord(ch)
+        if ch.isspace():
+            total += 260
+        elif (
+            0xAC00 <= code <= 0xD7AF or
+            0x3130 <= code <= 0x318F or
+            0x4E00 <= code <= 0x9FFF or
+            0x3040 <= code <= 0x30FF
+        ):
+            total += 620
+        elif ch in ",.;:!?()[]{}<>/\\-+*=~'\"":
+            total += 260
+        else:
+            total += 360
+    return total
+
+
+def _visible_text_from_paragraph(paragraph_xml):
+    text = "".join(re.findall(r'<hp:t[^>]*>(.*?)</hp:t>', paragraph_xml, re.DOTALL))
+    text = re.sub(r'<[^>]+>', '', text)
+    text = (
+        text.replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&amp;", "&")
+            .replace("&quot;", '"')
+            .replace("&apos;", "'")
+    )
+    equation_count = len(re.findall(r'<hp:equation\b', paragraph_xml))
+    return text + (" " * (equation_count * 4))
 
 
 def validate_hwpx(hwpx_path):
@@ -82,11 +116,16 @@ def validate_hwpx(hwpx_path):
         if dupes:
             errors.append(f"zOrder 중복: {sorted(dupes, key=int)}")
 
-        # 한글이 자체 줄 배치를 다시 계산하도록 lineSegArray는 단일 엔트리만 사용한다.
-        for idx, block in enumerate(re.findall(r'<hp:linesegarray>.*?</hp:linesegarray>', section, re.DOTALL), 1):
-            line_count = len(re.findall(r'<hp:lineseg\b', block))
-            if line_count > 1:
-                errors.append(f"다중 lineSegArray 감지: block #{idx} has {line_count} lineseg entries")
+        # 긴 문단이 단일 lineseg만 가지면 한글에서 한 줄에 눌려 겹쳐 보일 수 있다.
+        for idx, paragraph in enumerate(re.findall(r'<hp:p\b.*?</hp:p>', section, re.DOTALL), 1):
+            linesegs = re.findall(r'<hp:lineseg\b[^>]*/>', paragraph)
+            if len(linesegs) != 1:
+                continue
+            text_units = _estimate_text_units(_visible_text_from_paragraph(paragraph))
+            horz_match = re.search(r'horzsize="(\d+)"', linesegs[0])
+            horzsize = int(horz_match.group(1)) if horz_match else 30188
+            if text_units > int(horzsize * 1.35):
+                errors.append(f"긴 문단 단일 lineSegArray 감지: paragraph #{idx}, textUnits={text_units}, horzsize={horzsize}")
                 break
 
         # 태그 균형 (XML 실패 시만)

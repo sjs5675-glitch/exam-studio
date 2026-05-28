@@ -265,6 +265,7 @@ describe("stage foundation helpers", () => {
     expect(calls.map((args) => path.basename(args[0]))).toEqual([
       "build_hwpx.py",
       "fix_namespaces.py",
+      "normalize_hancom.py",
       "validate.py",
     ]);
     await expect(readFile(cache.paths.buildStatus, "utf8")).resolves.toContain('"status": "completed"');
@@ -274,6 +275,7 @@ describe("stage foundation helpers", () => {
     expect(resolveBuilderScripts("/repo")).toEqual({
       buildHwpx: path.join("/repo", "build_hwpx.py"),
       fixNamespaces: path.join("/repo", "resources", "hwpx_scripts", "fix_namespaces.py"),
+      normalizeHancom: path.join("/repo", "resources", "hwpx_scripts", "normalize_hancom.py"),
       validateHwpx: path.join("/repo", "resources", "hwpx_scripts", "validate.py"),
     });
   });

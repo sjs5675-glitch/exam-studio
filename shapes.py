@@ -9,43 +9,129 @@ import re
 import io
 from PIL import Image
 from ids import next_eq_id, next_zorder, next_inst_id
-from equation import xml_escape, make_equation_xml, lineseg_params_for_eq, make_lineseg
+from equation import xml_escape, make_equation_xml, lineseg_params_for_eq, make_lineseg, estimate_eq_width
+
+
+DEFAULT_LINE_PARAMS = (1000, 1000, 850, 600)
+CONDITION_LINE_MAX_UNITS = 25000
+CONDITION_ITEM_MIN_HEIGHT = 1600
+
+
+def estimate_text_units(text):
+    total = 0
+    for ch in str(text or ""):
+        code = ord(ch)
+        if ch.isspace():
+            total += 260
+        elif (
+            0xAC00 <= code <= 0xD7AF or
+            0x3130 <= code <= 0x318F or
+            0x4E00 <= code <= 0x9FFF or
+            0x3040 <= code <= 0x30FF
+        ):
+            total += 620
+        elif ch in ",.;:!?()[]{}<>/\\-+*=~'\"":
+            total += 260
+        else:
+            total += 360
+    return total
+
+
+def make_multiline_lineseg(line_starts, base_vertpos=0, vertsize=1000, textheight=1000,
+                           baseline=850, spacing=600, horzsize=27736):
+    starts = line_starts or [0]
+    line_step = vertsize + spacing
+    entries = []
+    for idx, textpos in enumerate(starts):
+        entries.append(
+            f'<hp:lineseg textpos="{max(0, int(textpos))}" vertpos="{base_vertpos + idx * line_step}" '
+            f'vertsize="{vertsize}" textheight="{textheight}" baseline="{baseline}" '
+            f'spacing="{spacing}" horzpos="0" horzsize="{horzsize}" flags="393216"/>'
+        )
+    return f'<hp:linesegarray>{"".join(entries)}</hp:linesegarray>'
+
+
+def build_condition_item_content(label, parts, max_units=CONDITION_LINE_MAX_UNITS):
+    content = ""
+    max_eq = DEFAULT_LINE_PARAMS
+    line_starts = [0]
+    line_units = 0
+    textpos = 0
+    has_body = False
+
+    def start_new_line():
+        nonlocal line_units
+        if line_starts[-1] != textpos:
+            line_starts.append(textpos)
+        line_units = 0
+
+    def account_text(text):
+        nonlocal line_units, textpos, has_body
+        for ch in text:
+            unit = estimate_text_units(ch)
+            if has_body and line_units + unit > max_units:
+                start_new_line()
+            line_units += unit
+            textpos += 1
+            if not ch.isspace():
+                has_body = True
+
+    label_text = f"{label} "
+    content += f'<hp:t>{xml_escape(label_text)}</hp:t>'
+    account_text(label_text)
+
+    for part in parts or []:
+        if "eq" in part:
+            eq_script = part["eq"]
+            unit_width = estimate_eq_width(eq_script)
+            if has_body and line_units + unit_width > max_units:
+                start_new_line()
+            content += make_equation_xml(eq_script)
+            line_units += unit_width
+            textpos += 1
+            has_body = True
+            params = lineseg_params_for_eq(eq_script)
+            if params[0] > max_eq[0]:
+                max_eq = params
+        elif "t" in part:
+            text = part["t"].replace("\n", " ")
+            if not text:
+                continue
+            content += f'<hp:t>{xml_escape(text)}</hp:t>'
+            account_text(text)
+
+    return content, max_eq, line_starts
 
 
 def make_condition_rect(condition_box, base_path):
     """Generate condition box (hp:rect) for (가)/(나)/(다) items"""
     items = condition_box["items"]
-    n_items = len(items)
-    height = n_items * 1600 + 2000
-    center_y = height // 2
-    sca_y = round(height / 12587, 6)
     rect_id = next_eq_id()
     zorder = next_zorder()
     iid = next_inst_id()
 
     items_content = ""
-    for idx, item in enumerate(items):
+    vpos = 0
+    for item in items:
         label = item["label"]
-        vpos = idx * 1600
-
-        # Build content for this item
-        item_run_content = f'<hp:t>{xml_escape(label)} </hp:t>'
-        max_eq = (1000, 1000, 850, 600)
-        for part in item["parts"]:
-            if "eq" in part:
-                item_run_content += make_equation_xml(part["eq"])
-                params = lineseg_params_for_eq(part["eq"])
-                if params[0] > max_eq[0]:
-                    max_eq = params
-            elif "t" in part:
-                item_run_content += f'<hp:t>{xml_escape(part["t"])}</hp:t>'
+        item_run_content, max_eq, line_starts = build_condition_item_content(label, item["parts"])
+        lineseg = make_multiline_lineseg(
+            line_starts,
+            base_vertpos=vpos,
+            vertsize=max_eq[0],
+            textheight=max_eq[1],
+            baseline=max_eq[2],
+            spacing=max_eq[3],
+        )
 
         items_content += (f'<hp:p id="2147483648" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">'
                          f'<hp:run charPrIDRef="1">{item_run_content}</hp:run>'
-                         f'<hp:linesegarray><hp:lineseg textpos="0" vertpos="{vpos}" '
-                         f'vertsize="{max_eq[0]}" textheight="{max_eq[1]}" baseline="{max_eq[2]}" '
-                         f'spacing="{max_eq[3]}" horzpos="0" horzsize="27736" flags="393216"/>'
-                         f'</hp:linesegarray></hp:p>')
+                         f'{lineseg}</hp:p>')
+        vpos += max(CONDITION_ITEM_MIN_HEIGHT, (max_eq[0] + max_eq[3]) * len(line_starts))
+
+    height = vpos + 2000
+    center_y = height // 2
+    sca_y = round(height / 12587, 6)
 
     # Read condition_rect_template.xml
     with open(f"{base_path}/condition_rect_template.xml", "r", encoding="utf-8") as f:
@@ -69,41 +155,38 @@ def make_ganada_table(condition_box, base_path):
     """
     items = condition_box["items"]
     n_items = len(items)
-    height = n_items * 1600 + 2000
-    center_y = height // 2
-    sca_y = round(height / 12587, 6)
     rect_id = next_eq_id()
     zorder = next_zorder()
     iid = next_inst_id()
 
     items_content = ""
+    vpos = 0
     for idx, item in enumerate(items):
         label = item["label"]
-        vpos = idx * 1600
         # Interior items (not first and not last) use paraPrIDRef="11"
         if 0 < idx < n_items - 1:
             para_pr = "11"
         else:
             para_pr = "0"
 
-        # Build content for this item
-        item_run_content = f'<hp:t>{xml_escape(label)} </hp:t>'
-        max_eq = (1000, 1000, 850, 600)
-        for part in item["parts"]:
-            if "eq" in part:
-                item_run_content += make_equation_xml(part["eq"])
-                params = lineseg_params_for_eq(part["eq"])
-                if params[0] > max_eq[0]:
-                    max_eq = params
-            elif "t" in part:
-                item_run_content += f'<hp:t>{xml_escape(part["t"])}</hp:t>'
+        item_run_content, max_eq, line_starts = build_condition_item_content(label, item["parts"])
+        lineseg = make_multiline_lineseg(
+            line_starts,
+            base_vertpos=vpos,
+            vertsize=max_eq[0],
+            textheight=max_eq[1],
+            baseline=max_eq[2],
+            spacing=max_eq[3],
+        )
 
         items_content += (f'<hp:p id="2147483648" paraPrIDRef="{para_pr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">'
                          f'<hp:run charPrIDRef="3">{item_run_content}</hp:run>'
-                         f'<hp:linesegarray><hp:lineseg textpos="0" vertpos="{vpos}" '
-                         f'vertsize="{max_eq[0]}" textheight="{max_eq[1]}" baseline="{max_eq[2]}" '
-                         f'spacing="{max_eq[3]}" horzpos="0" horzsize="27736" flags="393216"/>'
-                         f'</hp:linesegarray></hp:p>')
+                         f'{lineseg}</hp:p>')
+        vpos += max(CONDITION_ITEM_MIN_HEIGHT, (max_eq[0] + max_eq[3]) * len(line_starts))
+
+    height = vpos + 2000
+    center_y = height // 2
+    sca_y = round(height / 12587, 6)
 
     # Use condition_rect_template.xml as the structural base
     with open(f"{base_path}/condition_rect_template.xml", "r", encoding="utf-8") as f:

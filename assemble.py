@@ -59,6 +59,20 @@ def estimate_text_units(text):
     return total
 
 
+def make_multiline_lineseg(line_starts, vertsize=1000, textheight=1000,
+                           baseline=850, spacing=600, horzsize=30188):
+    starts = line_starts or [0]
+    entries = []
+    line_step = vertsize + spacing
+    for idx, textpos in enumerate(starts):
+        entries.append(
+            f'<hp:lineseg textpos="{max(0, int(textpos))}" vertpos="{idx * line_step}" '
+            f'vertsize="{vertsize}" textheight="{textheight}" baseline="{baseline}" '
+            f'spacing="{spacing}" horzpos="0" horzsize="{horzsize}" flags="393216"/>'
+        )
+    return f'<hp:linesegarray>{"".join(entries)}</hp:linesegarray>'
+
+
 def flow_parts_to_content_and_lines(parts, first_prefix_units=0, max_units=PROBLEM_LINE_MAX_UNITS):
     content = ""
     max_eq_params = DEFAULT_LINE_PARAMS
@@ -126,12 +140,19 @@ def make_flow_part_paragraphs(
     charPrIDRef="1",
     max_units=PROBLEM_LINE_MAX_UNITS,
 ):
-    content, max_eq, _line_starts = flow_parts_to_content_and_lines(
+    content, max_eq, line_starts = flow_parts_to_content_and_lines(
         parts,
         first_prefix_units=first_prefix_units,
         max_units=max_units,
     )
     content = first_prefix + content
+    lineseg_xml = make_multiline_lineseg(
+        line_starts,
+        vertsize=max_eq[0],
+        textheight=max_eq[1],
+        baseline=max_eq[2],
+        spacing=max_eq[3],
+    )
     return [make_paragraph(
         content=content,
         para_id=para_id,
@@ -141,14 +162,15 @@ def make_flow_part_paragraphs(
         textheight=max_eq[1],
         baseline=max_eq[2],
         spacing=max_eq[3],
+        lineseg_xml=lineseg_xml,
     )]
 
 
 def make_paragraph(content="", para_id="2147483648", paraPrIDRef="0", charPrIDRef="1",
                    pageBreak="0", columnBreak="0", vertpos=0,
                    vertsize=1000, textheight=1000, baseline=850, spacing=600,
-                   horzsize=30188):
-    lineseg = make_lineseg(vertpos, vertsize, textheight, baseline, spacing, horzsize)
+                   horzsize=30188, lineseg_xml=None):
+    lineseg = lineseg_xml or make_lineseg(vertpos, vertsize, textheight, baseline, spacing, horzsize)
     if content:
         return (f'<hp:p id="{para_id}" paraPrIDRef="{paraPrIDRef}" styleIDRef="0" '
                 f'pageBreak="{pageBreak}" columnBreak="{columnBreak}" merged="0">'

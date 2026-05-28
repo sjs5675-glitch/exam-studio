@@ -7,7 +7,7 @@
  *  1. camelCase info 키 (filenameBase 포함) 로 구성된 exam_data.json + figure_status.json
  *     을 받을 때 build 명령이 성공 경로를 타는지 확인.
  *  2. figure_status.json 없을 때도 build 성공 (그림 없는 시험지).
- *  3. commandRunner mock 을 통해 HWPX 경로 파싱/조립이 올바른지 확인.
+ *  3. commandRunner mock 을 통해 HWPX 경로 파싱/조립/정규화가 올바른지 확인.
  *  4. resolveBuilderScripts 가 올바른 경로를 반환하는지 확인.
  *  5. build_hwpx 커맨드 실패 시 failed 상태로 반환.
  */
@@ -146,6 +146,10 @@ function makeSuccessCommandRunner(hwpxOutputPath: string) {
       return makeOkResult(command, args, "fix_namespaces: OK");
     }
 
+    if (scriptName.endsWith("normalize_hancom.py")) {
+      return makeOkResult(command, args, "Hancom-normalized HWPX");
+    }
+
     if (scriptName.endsWith("validate.py")) {
       return makeOkResult(command, args, "validate: OK");
     }
@@ -190,7 +194,7 @@ describe("runBuilderStage — camelCase exam_data.json + figure_status.json", ()
 
     expect(result.status).toBe("completed");
     expect(result.output?.hwpxPath).toBe(hwpxOutputPath);
-    expect(result.output?.commands).toHaveLength(3); // build + fix + validate
+    expect(result.output?.commands).toHaveLength(4); // build + fix + normalize + validate
     expect(result.output?.commands[0]?.name).toBe("build_hwpx");
     expect(result.output?.commands[0]?.status).toBe("success");
   });
@@ -221,8 +225,8 @@ describe("runBuilderStage — figure_status.json 없는 경우", () => {
 
     const result = await runBuilderStage(input);
     expect(result.status).toBe("completed");
-    // figure_status.json 없어도 3개 명령 모두 성공
-    expect(result.output?.commands).toHaveLength(3);
+    // figure_status.json 없어도 4개 명령 모두 성공
+    expect(result.output?.commands).toHaveLength(4);
   });
 });
 
@@ -293,6 +297,9 @@ describe("resolveBuilderScripts", () => {
     expect(scripts.buildHwpx).toBe(path.join(baseDir, "build_hwpx.py"));
     expect(scripts.fixNamespaces).toBe(
       path.join(baseDir, "resources", "hwpx_scripts", "fix_namespaces.py")
+    );
+    expect(scripts.normalizeHancom).toBe(
+      path.join(baseDir, "resources", "hwpx_scripts", "normalize_hancom.py")
     );
     expect(scripts.validateHwpx).toBe(
       path.join(baseDir, "resources", "hwpx_scripts", "validate.py")
