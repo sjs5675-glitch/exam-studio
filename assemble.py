@@ -429,6 +429,19 @@ def main(exam_json=None, output_dir=None, base_path=None):
     else:
         GRADE_SUBJECT = f"{info['grade']}학년 {info['subject']}"
     RANGE_STR = info.get("range", "")
+    workbook_name_parts = [
+        info.get("publisher", ""),
+        info.get("bookTitle", ""),
+        info.get("bookVolume", ""),
+        info.get("bookType", ""),
+        info.get("outputVersion", ""),
+    ]
+    WORKBOOK_NAME = " ".join(
+        part.strip() for part in workbook_name_parts
+        if isinstance(part, str) and part.strip()
+    )
+    if not WORKBOOK_NAME:
+        WORKBOOK_NAME = YEAR_SEMESTER
     CREATED_DATE = datetime.now().strftime("%Y년 %m월 %d일")
     MODIFIED_DATE = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -439,6 +452,7 @@ def main(exam_json=None, output_dir=None, base_path=None):
         header_template = f.read()
 
     header_xml = header_template.replace("{{YEAR_SEMESTER}}", xml_escape(YEAR_SEMESTER))
+    header_xml = header_xml.replace("{{WORKBOOK_NAME}}", xml_escape(WORKBOOK_NAME))
     header_xml = header_xml.replace("{{SCHOOL_NAME}}", xml_escape(SCHOOL_NAME))
     header_xml = header_xml.replace("{{GRADE_SUBJECT}}", xml_escape(GRADE_SUBJECT))
     header_xml = header_xml.replace("{{RANGE}}", xml_escape(RANGE_STR))

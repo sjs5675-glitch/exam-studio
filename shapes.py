@@ -13,7 +13,10 @@ from equation import xml_escape, make_equation_xml, lineseg_params_for_eq, make_
 
 
 DEFAULT_LINE_PARAMS = (1000, 1000, 850, 600)
-CONDITION_LINE_MAX_UNITS = 25000
+WORKBOOK_COLUMN_WIDTH = 24400
+CONDITION_RECT_ORG_WIDTH = 28644
+CONDITION_TEXT_HORZSIZE = 22000
+CONDITION_LINE_MAX_UNITS = 21000
 CONDITION_ITEM_MIN_HEIGHT = 1600
 
 
@@ -38,7 +41,7 @@ def estimate_text_units(text):
 
 
 def make_multiline_lineseg(line_starts, base_vertpos=0, vertsize=1000, textheight=1000,
-                           baseline=850, spacing=600, horzsize=27736):
+                           baseline=850, spacing=600, horzsize=CONDITION_TEXT_HORZSIZE):
     starts = line_starts or [0]
     line_step = vertsize + spacing
     entries = []
@@ -49,6 +52,16 @@ def make_multiline_lineseg(line_starts, base_vertpos=0, vertsize=1000, textheigh
             f'spacing="{spacing}" horzpos="0" horzsize="{horzsize}" flags="393216"/>'
         )
     return f'<hp:linesegarray>{"".join(entries)}</hp:linesegarray>'
+
+
+def _fit_condition_rect_width(rect_xml, target_width=WORKBOOK_COLUMN_WIDTH):
+    scale_x = target_width / CONDITION_RECT_ORG_WIDTH
+    rect_xml = re.sub(r'(<hp:curSz\b[^>]*\bwidth=")\d+(")', rf'\g<1>{target_width}\2', rect_xml, count=1)
+    rect_xml = re.sub(r'(\bcenterX=")\d+(")', rf'\g<1>{target_width // 2}\2', rect_xml, count=1)
+    rect_xml = re.sub(r'(<hc:scaMatrix\b[^>]*\be1=")[^"]+(")', rf'\g<1>{scale_x:.6f}\2', rect_xml, count=1)
+    rect_xml = re.sub(r'(<hp:drawText\b[^>]*\blastWidth=")\d+(")', rf'\g<1>{target_width}\2', rect_xml, count=1)
+    rect_xml = re.sub(r'(<hp:sz\b[^>]*\bwidth=")\d+(")', rf'\g<1>{target_width}\2', rect_xml, count=1)
+    return rect_xml
 
 
 def build_condition_item_content(label, parts, max_units=CONDITION_LINE_MAX_UNITS):
@@ -145,7 +158,7 @@ def make_condition_rect(condition_box, base_path):
     rect_xml = rect_xml.replace("{{SCA_Y}}", str(sca_y))
     rect_xml = rect_xml.replace("{{ITEMS_CONTENT}}", items_content)
 
-    return rect_xml
+    return _fit_condition_rect_width(rect_xml)
 
 
 def make_ganada_table(condition_box, base_path):
@@ -200,7 +213,7 @@ def make_ganada_table(condition_box, base_path):
     rect_xml = rect_xml.replace("{{SCA_Y}}", str(sca_y))
     rect_xml = rect_xml.replace("{{ITEMS_CONTENT}}", items_content)
 
-    return rect_xml
+    return _fit_condition_rect_width(rect_xml)
 
 
 def make_empty_box(condition_box, base_path):
@@ -221,7 +234,7 @@ def make_empty_box(condition_box, base_path):
     xml = xml.replace("{{HEIGHT}}", str(height))
     xml = xml.replace("{{CENTER_Y}}", str(center_y))
     xml = xml.replace("{{SCA_Y}}", str(sca_y))
-    return xml
+    return _fit_condition_rect_width(xml)
 
 
 def make_proof_table(condition_box, base_path, replace_table_ids_fn):
@@ -294,7 +307,7 @@ def make_pic_xml(img_name, img_path):
     w, h = img.size
     # Convert pixels to HWPUNIT (approx 75.59 per mm, 1 pixel ~ 7559/dpi ~ 75.59/dpi * 100)
     # For 200dpi: 1 pixel ~ 37.8 HWPUNIT. For simplicity use width relative to column
-    hw_w = min(int(w * 37.8), 28000)
+    hw_w = min(int(w * 37.8), WORKBOOK_COLUMN_WIDTH)
     hw_h = int(h * 37.8 * hw_w / (w * 37.8))
 
     binaryItemIDRef = img_name.replace(".bmp", "").replace(".png", "")

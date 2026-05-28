@@ -25,6 +25,9 @@ from ids import next_eq_id, next_zorder
 from equation import xml_escape, make_equation_xml, lineseg_params_for_eq, make_lineseg
 from shapes import make_proof_table as _make_proof_table_base
 
+BOGI_TABLE_TARGET_WIDTH = 24400
+BOGI_TITLE_CELL_WIDTH = 6200
+
 
 def _replace_table_ids(xml):
     """테이블 XML의 id/zOrder를 새 값으로 교체"""
@@ -32,6 +35,79 @@ def _replace_table_ids(xml):
     xml = re.sub(r'(<hp:equation\b[^>]* id=)"[^"]*"', lambda m: f'{m.group(1)}"{next_eq_id()}"', xml)
     xml = re.sub(r'(zOrder=)"[^"]*"', lambda m: f'{m.group(1)}"{next_zorder()}"', xml)
     return xml
+
+
+def _scale_bogi_table_width(tbl_xml, target_width=BOGI_TABLE_TARGET_WIDTH):
+    match = re.search(r'(<hp:tbl\b.*?<hp:sz\b[^>]*\bwidth=")(\d+)(")', tbl_xml, re.DOTALL)
+    if not match:
+        return tbl_xml
+
+    original_width = int(match.group(2))
+    if original_width <= target_width:
+        return tbl_xml
+
+    scale = target_width / original_width
+
+    def scale_value(value):
+        return str(max(1, round(int(value) * scale)))
+
+    tbl_xml = re.sub(
+        r'(<hp:tbl\b.*?<hp:sz\b[^>]*\bwidth=")(\d+)(")',
+        lambda m: f'{m.group(1)}{scale_value(m.group(2))}{m.group(3)}',
+        tbl_xml,
+        count=1,
+        flags=re.DOTALL,
+    )
+    tbl_xml = re.sub(
+        r'(<hp:cellSz\b[^>]*\bwidth=")(\d+)(")',
+        lambda m: f'{m.group(1)}{scale_value(m.group(2))}{m.group(3)}',
+        tbl_xml,
+    )
+    tbl_xml = re.sub(
+        r'(<hp:lineseg\b[^>]*\bhorzsize=")(\d+)(")',
+        lambda m: f'{m.group(1)}{scale_value(m.group(2))}{m.group(3)}',
+        tbl_xml,
+    )
+    return _keep_bogi_title_single_line(tbl_xml, target_width)
+
+
+def _set_cell_width(cell_xml, width):
+    line_width = max(1, width - 282)
+    cell_xml = re.sub(
+        r'(<hp:cellSz\b[^>]*\bwidth=")\d+(")',
+        rf'\g<1>{width}\2',
+        cell_xml,
+        count=1,
+    )
+    cell_xml = re.sub(
+        r'(<hp:lineseg\b[^>]*\bhorzsize=")\d+(")',
+        rf'\g<1>{line_width}\2',
+        cell_xml,
+    )
+    return cell_xml
+
+
+def _keep_bogi_title_single_line(tbl_xml, target_width=BOGI_TABLE_TARGET_WIDTH):
+    title_width = min(BOGI_TITLE_CELL_WIDTH, target_width - 2000)
+    side_width = max(1, (target_width - title_width) // 2)
+    right_width = max(1, target_width - title_width - side_width)
+
+    cells = re.findall(r'<hp:tc\b.*?</hp:tc>', tbl_xml, re.DOTALL)
+    for cell in cells:
+        addr = re.search(r'<hp:cellAddr\s+colAddr="(\d+)"\s+rowAddr="(\d+)"', cell)
+        if not addr:
+            continue
+        col, row = int(addr.group(1)), int(addr.group(2))
+        new_cell = cell
+        if row in (0, 1) and col == 0:
+            new_cell = _set_cell_width(cell, side_width)
+        elif row == 0 and col == 2 and 'paraPrIDRef="29"' in cell:
+            new_cell = _set_cell_width(cell, title_width)
+        elif row in (0, 1) and col == 3:
+            new_cell = _set_cell_width(cell, right_width)
+        if new_cell != cell:
+            tbl_xml = tbl_xml.replace(cell, new_cell, 1)
+    return tbl_xml
 
 
 def _inject_cell_value(cell_xml, value, force_equation=False, *, force_text=False):
@@ -674,7 +750,7 @@ def make_bogi_table(condition_box, base_path):
                 tbl_xml, count=1
             )
 
-    return tbl_xml
+    return _scale_bogi_table_width(tbl_xml)
 
 
 def make_proof_table_wrapped(condition_box, base_path):
