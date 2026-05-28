@@ -9,6 +9,7 @@ HWPX XML 검증 + 자동수정 스크립트
   4. zOrder 중복
   5. 태그 균형 (XML 파싱 실패 시 보조 진단)
   6. content.hpf 매니페스트 일치
+  7. 다중 lineSegArray 금지 (한글 경고 방지)
 
 사용법:
   python validate.py <file.hwpx> [--fix]
@@ -80,6 +81,13 @@ def validate_hwpx(hwpx_path):
             seen.add(zo)
         if dupes:
             errors.append(f"zOrder 중복: {sorted(dupes, key=int)}")
+
+        # 한글이 자체 줄 배치를 다시 계산하도록 lineSegArray는 단일 엔트리만 사용한다.
+        for idx, block in enumerate(re.findall(r'<hp:linesegarray>.*?</hp:linesegarray>', section, re.DOTALL), 1):
+            line_count = len(re.findall(r'<hp:lineseg\b', block))
+            if line_count > 1:
+                errors.append(f"다중 lineSegArray 감지: block #{idx} has {line_count} lineseg entries")
+                break
 
         # 태그 균형 (XML 실패 시만)
         if any('section0.xml' in e for e in errors):
