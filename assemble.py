@@ -51,152 +51,137 @@ def estimate_text_units(text):
             0x4E00 <= code <= 0x9FFF or
             0x3040 <= code <= 0x30FF
         ):
-            total += 880
+            total += 620
         elif ch in ",.;:!?()[]{}<>/\\-+*=~'\"":
-            total += 340
+            total += 260
         else:
-            total += 470
+            total += 360
     return total
 
 
-def split_text_by_units(text, max_units):
-    text = str(text or "")
-    if not text:
-        return []
-
-    chunks = []
-    current = ""
-    current_units = 0
-
-    def flush():
-        nonlocal current, current_units
-        if current:
-            chunks.append(current)
-            current = ""
-            current_units = 0
-
-    for token in re.findall(r"\S+\s*", text):
-        token_units = estimate_text_units(token)
-        if token_units <= max_units:
-            if current and current_units + token_units > max_units:
-                flush()
-            current += token
-            current_units += token_units
-            continue
-
-        flush()
-        hard = ""
-        hard_units = 0
-        for ch in token:
-            ch_units = estimate_text_units(ch)
-            if hard and hard_units + ch_units > max_units:
-                chunks.append(hard)
-                hard = ""
-                hard_units = 0
-            hard += ch
-            hard_units += ch_units
-        if hard:
-            chunks.append(hard)
-
-    flush()
-    return chunks
+def make_multiline_lineseg(line_starts, vertsize=1000, textheight=1000,
+                           baseline=850, spacing=600, horzsize=30188):
+    starts = line_starts or [0]
+    entries = []
+    line_step = vertsize + spacing
+    for idx, textpos in enumerate(starts):
+        entries.append(
+            f'<hp:lineseg textpos="{max(0, int(textpos))}" vertpos="{idx * line_step}" '
+            f'vertsize="{vertsize}" textheight="{textheight}" baseline="{baseline}" '
+            f'spacing="{spacing}" horzpos="0" horzsize="{horzsize}" flags="393216"/>'
+        )
+    return f'<hp:linesegarray>{"".join(entries)}</hp:linesegarray>'
 
 
-def make_wrapped_part_paragraphs(
-    parts,
-    first_prefix="",
-    first_prefix_units=0,
-    continuation_prefix="",
-    continuation_units=0,
-    max_units=PROBLEM_LINE_MAX_UNITS,
-    para_id="2147483648",
-    paraPrIDRef="0",
-    charPrIDRef="1",
-):
-    paragraphs = []
-    line_content = first_prefix
+def flow_parts_to_content_and_lines(parts, first_prefix_units=0, max_units=PROBLEM_LINE_MAX_UNITS):
+    content = ""
+    max_eq_params = DEFAULT_LINE_PARAMS
+    line_starts = [0]
     line_units = first_prefix_units
-    line_params = DEFAULT_LINE_PARAMS
+    textpos = 0
+    last_text_char = ""
     has_body = False
 
-    def append_line():
-        nonlocal line_content, line_units, line_params, has_body
-        if line_content or not paragraphs:
-            paragraphs.append(make_paragraph(
-                content=line_content,
-                para_id=para_id,
-                paraPrIDRef=paraPrIDRef,
-                charPrIDRef=charPrIDRef,
-                vertsize=line_params[0],
-                textheight=line_params[1],
-                baseline=line_params[2],
-                spacing=line_params[3],
-            ))
-        line_content = continuation_prefix
-        line_units = continuation_units
-        line_params = DEFAULT_LINE_PARAMS
-        has_body = False
+    def start_new_line():
+        nonlocal line_units
+        if line_starts[-1] != textpos:
+            line_starts.append(textpos)
+        line_units = 0
+
+    def account_text(text):
+        nonlocal line_units, textpos, last_text_char, has_body
+        for ch in text:
+            unit = estimate_text_units(ch)
+            if has_body and line_units + unit > max_units:
+                start_new_line()
+            line_units += unit
+            textpos += 1
+            if not ch.isspace():
+                last_text_char = ch
+                has_body = True
 
     for part in parts or []:
         if "eq" in part:
             eq_script = part["eq"]
             unit_width = estimate_eq_width(eq_script)
             if part.get("indent"):
-                unit_width += TAB_UNITS
-            if has_body and line_units + unit_width > max_units:
-                append_line()
-            if part.get("indent"):
-                line_content += '<hp:tab width="2000" leader="0" type="1"/>'
+                if has_body and line_units + TAB_UNITS > max_units:
+                    start_new_line()
+                content += '<hp:tab width="2000" leader="0" type="1"/>'
                 line_units += TAB_UNITS
-            line_content += make_equation_xml(eq_script)
-            line_units += estimate_eq_width(eq_script)
-            params = lineseg_params_for_eq(eq_script)
-            if params[0] > line_params[0]:
-                line_params = params
+                textpos += 1
+            if has_body and line_units + unit_width > max_units:
+                start_new_line()
+            content += make_equation_xml(eq_script)
+            line_units += unit_width
+            textpos += 1
             has_body = True
+            params = lineseg_params_for_eq(eq_script)
+            if params[0] > max_eq_params[0]:
+                max_eq_params = params
         elif "t" in part:
             text = part["t"].replace("\n", " ")
-            for chunk in split_text_by_units(text, max_units):
-                chunk_units = estimate_text_units(chunk)
-                if has_body and line_units + chunk_units > max_units:
-                    append_line()
-                    chunk = chunk.lstrip()
-                    chunk_units = estimate_text_units(chunk)
-                if not chunk:
-                    continue
-                line_content += f'<hp:t>{xml_escape(chunk)}</hp:t>'
-                line_units += chunk_units
-                has_body = True
+            if has_body and last_text_char in ".?!" and text and not text[0].isspace():
+                text = " " + text
+            if not text:
+                continue
+            content += f'<hp:t>{xml_escape(text)}</hp:t>'
+            account_text(text)
 
-    if line_content or not paragraphs:
-        paragraphs.append(make_paragraph(
-            content=line_content,
-            para_id=para_id,
-            paraPrIDRef=paraPrIDRef,
-            charPrIDRef=charPrIDRef,
-            vertsize=line_params[0],
-            textheight=line_params[1],
-            baseline=line_params[2],
-            spacing=line_params[3],
-        ))
+    return content, max_eq_params, line_starts
 
-    return paragraphs
+
+def make_flow_part_paragraphs(
+    parts,
+    first_prefix="",
+    first_prefix_units=0,
+    para_id="2147483648",
+    paraPrIDRef="0",
+    charPrIDRef="1",
+    max_units=PROBLEM_LINE_MAX_UNITS,
+):
+    content, max_eq, line_starts = flow_parts_to_content_and_lines(
+        parts,
+        first_prefix_units=first_prefix_units,
+        max_units=max_units,
+    )
+    content = first_prefix + content
+    lineseg_xml = make_multiline_lineseg(
+        line_starts,
+        vertsize=max_eq[0],
+        textheight=max_eq[1],
+        baseline=max_eq[2],
+        spacing=max_eq[3],
+    )
+    return [make_paragraph(
+        content=content,
+        para_id=para_id,
+        paraPrIDRef=paraPrIDRef,
+        charPrIDRef=charPrIDRef,
+        vertsize=max_eq[0],
+        textheight=max_eq[1],
+        baseline=max_eq[2],
+        spacing=max_eq[3],
+        lineseg_xml=lineseg_xml,
+    )]
 
 
 def make_paragraph(content="", para_id="2147483648", paraPrIDRef="0", charPrIDRef="1",
                    pageBreak="0", columnBreak="0", vertpos=0,
-                   vertsize=1000, textheight=1000, baseline=850, spacing=600, horzsize=30188):
+                   vertsize=1000, textheight=1000, baseline=850, spacing=600,
+                   horzsize=30188, lineseg_xml=None):
+    lineseg = lineseg_xml or make_lineseg(vertpos, vertsize, textheight, baseline, spacing, horzsize)
     if content:
         return (f'<hp:p id="{para_id}" paraPrIDRef="{paraPrIDRef}" styleIDRef="0" '
                 f'pageBreak="{pageBreak}" columnBreak="{columnBreak}" merged="0">'
                 f'<hp:run charPrIDRef="{charPrIDRef}">{content}</hp:run>'
-                f'{make_lineseg(vertpos, vertsize, textheight, baseline, spacing, horzsize)}'
+                f'{lineseg}'
                 f'</hp:p>')
     else:
         return (f'<hp:p id="{para_id}" paraPrIDRef="{paraPrIDRef}" styleIDRef="0" '
                 f'pageBreak="{pageBreak}" columnBreak="{columnBreak}" merged="0">'
                 f'<hp:run charPrIDRef="{charPrIDRef}"/>'
-                f'{make_lineseg(vertpos, vertsize, textheight, baseline, spacing, horzsize)}'
+                f'{lineseg}'
                 f'</hp:p>')
 
 
@@ -297,12 +282,10 @@ def make_choices_xml(choices, force_compact=False):
         # Individual lines for each choice
         for i, choice_parts in enumerate(choices):
             first_prefix_text = f"{CHOICE_SYMBOLS[i]} "
-            paragraphs.extend(make_wrapped_part_paragraphs(
+            paragraphs.extend(make_flow_part_paragraphs(
                 choice_parts,
                 first_prefix=f'<hp:t>{first_prefix_text}</hp:t>',
                 first_prefix_units=estimate_text_units(first_prefix_text),
-                continuation_prefix='<hp:t>   </hp:t>',
-                continuation_units=estimate_text_units("   "),
                 max_units=CHOICE_LINE_MAX_UNITS,
             ))
 
@@ -346,7 +329,7 @@ def make_endnote(number, answer, explanation_parts, prob_type="choice", explanat
 
     expl_xml = ""
     for parts_group in explanation_paragraphs:
-        expl_xml += "".join(make_wrapped_part_paragraphs(
+        expl_xml += "".join(make_flow_part_paragraphs(
             parts_group,
             para_id="0",
             paraPrIDRef="0",
@@ -505,12 +488,10 @@ def main(exam_json=None, output_dir=None, base_path=None):
         parts_has_marker = bool(parts) and parts[0].get("t", "").startswith("[서술형")
         prefix = f'<hp:t>[서술형 {essay_count}] </hp:t>' if ptype == "essay" and not parts_has_marker else ""
 
-        problem_paras.extend(make_wrapped_part_paragraphs(
+        problem_paras.extend(make_flow_part_paragraphs(
             parts,
             first_prefix=endnote_xml + prefix,
             first_prefix_units=PROBLEM_NUMBER_UNITS + (estimate_text_units("[essay 00] ") if prefix else 0),
-            continuation_prefix="",
-            continuation_units=0,
             max_units=PROBLEM_LINE_MAX_UNITS,
         ))
         problem_paras.append(make_empty_para())
