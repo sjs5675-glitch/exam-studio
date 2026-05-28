@@ -48,7 +48,7 @@ const KOREAN_ELEMENT_NAMES = [
 
 const NO_DIGIT_FORMULA_WHITELIST = new Set([
   "CO", "NO", "NO2", "SO2", "SO3", "HCl", "HBr", "HI",
-  "NaCl", "KCl", "NaOH", "KOH", "CaO", "MgO",
+  "NaCl", "KCl", "NaOH", "KOH", "CaO", "MgO", "OH",
 ]);
 
 const UNIT_ALIASES: Record<string, string> = {
@@ -109,6 +109,7 @@ function normalizePart(part: Part): Part {
     s = wrapCdots(s);                     // R-04
     s = commaTilde(s);                    // R-05
     s = leftRightSpace(s);               // R-06
+    s = normalizeChemicalEq(s);
     s = fixPermutationCombination(s);    // R-08 (before R-07: 2-pass)
     s = leadingUnderscoreToLsub(s);      // R-07 (2-pass: applied after R-08)
     s = enforceRmUnits(s);               // R-09 (eq-side unit enforcement)
@@ -119,6 +120,27 @@ function normalizePart(part: Part): Part {
     return { ...part, t: enforceRmUnits(part.t) }; // R-09 (text-side)
   }
   return part;
+}
+
+function normalizeChemicalEq(script: string): string {
+  let s = script.replace(/rm\{\s*\{([A-Z][a-z]?)\}\s*\}/g, "rm{$1}");
+  s = s.replace(/(rm\{[A-Z][a-z]?\})_(\d+)/g, "$1_{$2}");
+
+  s = s.replace(/rm\{([A-Z][A-Za-z0-9_()]*)\}/g, (match, body: string) => {
+    const source = body.replace(/_\{?(\d+)\}?/g, "$1");
+    const parsed = parseFormulaSource(source);
+    return parsed && (parsed.hasSubscript || NO_DIGIT_FORMULA_WHITELIST.has(parsed.source)) ? parsed.script : match;
+  });
+
+  let prev = "";
+  const atom = String.raw`rm\{[A-Z][a-z]?\}(?:_\{\d+\})?`;
+  const adjacentAtoms = new RegExp(`(${atom})\\s+(${atom})`, "g");
+  while (prev !== s) {
+    prev = s;
+    s = s.replace(adjacentAtoms, "$1$2");
+  }
+
+  return s;
 }
 
 function splitTextChemistry(parts: Part[]): Part[] {
@@ -270,7 +292,7 @@ function parseFormulaSource(source: string): Omit<FormulaParse, "consumed"> | nu
 
   return {
     source,
-    script: `rm{${parsed.script}}${charge ? `^{${charge}}` : ""}`,
+    script: `${parsed.script}${charge ? `^{${charge}}` : ""}`,
     hasSubscript: parsed.hasSubscript,
     elementCount: parsed.elementCount,
   };
@@ -301,7 +323,7 @@ function parseFormulaBody(
       const digits = readDigits(source, index);
       script += `(${inner.script})`;
       if (digits.value) {
-        script += `_${digits.value}`;
+        script += `_{${digits.value}}`;
         hasSubscript = true;
       }
       hasSubscript = hasSubscript || inner.hasSubscript;
@@ -325,9 +347,9 @@ function parseFormulaBody(
     index++;
 
     const digits = readDigits(source, index);
-    script += symbol;
+    script += `rm{${symbol}}`;
     if (digits.value) {
-      script += `_${digits.value}`;
+      script += `_{${digits.value}}`;
       hasSubscript = true;
     }
     elementCount++;

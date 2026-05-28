@@ -35,7 +35,7 @@ _KOREAN_ELEMENT_NAMES = [
 
 _NO_DIGIT_FORMULA_WHITELIST = {
     "CO", "NO", "NO2", "SO2", "SO3", "HCl", "HBr", "HI",
-    "NaCl", "KCl", "NaOH", "KOH", "CaO", "MgO",
+    "NaCl", "KCl", "NaOH", "KOH", "CaO", "MgO", "OH",
 }
 
 _UNIT_ALIASES = {
@@ -73,6 +73,7 @@ def _normalize_part(part: dict) -> dict:
         script = _wrap_cdots(script)             # R-04
         script = _comma_tilde(script)            # R-05
         script = _left_right_space(script)       # R-06
+        script = _normalize_chemical_eq(script)
         script = _fix_permutation_combination(script)  # R-08 (before R-07)
         script = _leading_underscore_to_lsub(script)  # R-07 (2-pass: after R-08)
         script = _enforce_rm_units(script)       # R-09
@@ -81,6 +82,30 @@ def _normalize_part(part: dict) -> dict:
     if "t" in part:
         return {**part, "t": _enforce_rm_units(part["t"])}  # R-09 (text-side)
     return part
+
+
+def _normalize_chemical_eq(script: str) -> str:
+    script = re.sub(r'rm\{\s*\{([A-Z][a-z]?)\}\s*\}', r'rm{\1}', script)
+    script = re.sub(r'(rm\{[A-Z][a-z]?\})_(\d+)', r'\1_{\2}', script)
+
+    def _replace_legacy_rm(m):
+        body = m.group(1)
+        source = re.sub(r'_\{?(\d+)\}?', r'\1', body)
+        parsed = _parse_formula_source(source)
+        if parsed and (parsed.get("has_subscript") or parsed.get("source") in _NO_DIGIT_FORMULA_WHITELIST):
+            return parsed["script"]
+        return m.group(0)
+
+    script = re.sub(r'rm\{([A-Z][A-Za-z0-9_()]*)\}', _replace_legacy_rm, script)
+
+    atom = r'rm\{[A-Z][a-z]?\}(?:_\{\d+\})?'
+    adjacent_atoms = re.compile(rf'({atom})\s+({atom})')
+    prev = None
+    while prev != script:
+        prev = script
+        script = adjacent_atoms.sub(r'\1\2', script)
+
+    return script
 
 
 def _split_text_chemistry(parts: list) -> list:
@@ -208,7 +233,7 @@ def _parse_formula_source(source: str):
         return None
     return {
         "source": source,
-        "script": f"rm{{{parsed['script']}}}" + (f"^{{{charge}}}" if charge else ""),
+        "script": parsed["script"] + (f"^{{{charge}}}" if charge else ""),
         "has_subscript": parsed["has_subscript"],
         "element_count": parsed["element_count"],
     }
@@ -233,7 +258,7 @@ def _parse_formula_body(source: str, start: int, stop_at_paren: bool):
             digits, index = _read_digits(source, index)
             script.append(f"({inner['script']})")
             if digits:
-                script.append(f"_{digits}")
+                script.append(f"_{{{digits}}}")
                 has_subscript = True
             has_subscript = has_subscript or inner["has_subscript"]
             element_count += inner["element_count"]
@@ -251,9 +276,9 @@ def _parse_formula_body(source: str, start: int, stop_at_paren: bool):
         index += 1
 
         digits, index = _read_digits(source, index)
-        script.append(symbol)
+        script.append(f"rm{{{symbol}}}")
         if digits:
-            script.append(f"_{digits}")
+            script.append(f"_{{{digits}}}")
             has_subscript = True
         element_count += 1
 
@@ -731,13 +756,75 @@ def xml_escape(s):
 
 def estimate_eq_width(script):
     """Rough estimate of equation width in HWPUNIT"""
-    # Very rough: ~525 per character, min 525
-    chars = len(script)
+    compact_width = _estimate_compact_rm_width(script)
+    if compact_width is not None:
+        return compact_width
+
     # Account for special commands taking less visual space
     reduced = re.sub(r'(LEFT|RIGHT|over|sqrt|times|leq|geq|rmP|rmE|rmV|rmN|rmB|rmX|rmY|rmZ|rm|it|bar|sigma)', '.', script)
     vis_chars = max(len(reduced), 1)
     width = max(vis_chars * 400, 525)
     return min(width, 30000)
+
+
+def _estimate_compact_rm_width(script):
+    """Estimate compact one-line roman equations such as chemical formulas and units.
+
+    HWP equation object width is absolute. The generic estimator counted syntax
+    tokens like rm{}, braces, and subscripts as visible characters, which left
+    large blanks before following Korean text. For chemistry/unit equations the
+    visible glyph count is much smaller than the script length.
+    """
+    if not script or "rm" not in script:
+        return None
+    if has_fraction(script) or has_root(script) or has_integral(script):
+        return None
+    if re.search(r'\b(LEFT|RIGHT|sqrt|over|sum|int|lim|matrix|pmatrix)\b', script):
+        return None
+
+    visible = _compact_rm_visible_script(script)
+    total = 0
+    i = 0
+    while i < len(visible):
+        ch = visible[i]
+        if ch == '_':
+            sub, next_i = _read_subscript_payload(visible, i + 1)
+            total += max(len(sub), 1) * 190
+            i = next_i
+            continue
+        if ch in '{}':
+            i += 1
+            continue
+        if ch.isspace():
+            total += 120
+        elif ch == '~':
+            total += 180
+        elif ch in '/().,+-':
+            total += 230
+        elif ch.isdigit():
+            total += 260
+        else:
+            total += 320
+        i += 1
+
+    return min(max(int(total * 1.12) + 220, 650), 30000)
+
+
+def _compact_rm_visible_script(script):
+    s = re.sub(r'rm\{\s*\{([^{}]+)\}\s*\}', r'\1', script)
+    s = re.sub(r'rm\{([^{}]+)\}', r'\1', s)
+    s = re.sub(r'\brm\s+', '', s)
+    return s
+
+
+def _read_subscript_payload(script, start):
+    if start < len(script) and script[start] == '{':
+        end = script.find('}', start + 1)
+        if end != -1:
+            return script[start + 1:end], end + 1
+    if start < len(script):
+        return script[start], start + 1
+    return "", start
 
 
 def has_fraction(script):
