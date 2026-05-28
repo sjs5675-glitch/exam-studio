@@ -1,0 +1,36 @@
+{
+  "id": "SCI-04",
+  "description": "Legacy LaTeX-derived rm groups are split into element-level chemistry equations without touching diagram labels",
+  "input": {
+    "parts": [
+      {
+        "eq": "rm{NH}_{3} + rm{CO}_{2} + rm{OH}^{-} + rm{Ca(OH)}_{2}"
+      },
+      {
+        "t": "점(F), 물체(A), 보기 (K), 탄소(C), 산소(O)"
+      }
+    ]
+  },
+  "expected": {
+    "parts": [
+      {
+        "eq": "rm{N}rm{H}_{3} + rm{C}rm{O}_{2} + rm{O}rm{H}^{-} + rm{Ca}(rm{O}rm{H})_{2}"
+      },
+      {
+        "t": "점(F), 물체(A), 보기 (K), 탄소("
+      },
+      {
+        "eq": "rm{C}"
+      },
+      {
+        "t": "), 산소("
+      },
+      {
+        "eq": "rm{O}"
+      },
+      {
+        "t": ")"
+      }
+    ]
+  }
+}

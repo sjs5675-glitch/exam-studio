@@ -1,0 +1,44 @@
+{
+  "id": "SCI-03",
+  "description": "Advanced science text: hydrates, charged ions, reaction coefficients, and high-school units normalize generically",
+  "input": {
+    "parts": [
+      {
+        "t": "황산 구리(CuSO4·5H2O) 1.0 g을 25 °C에서 녹이고, Na⁺와 SO₄²⁻, NH4+와 OH-가 있다. 속력은 9.8 m/s², 농도는 0.1 M, 압력은 1 atm, 밀도는 1 g/cm³이다. 반응식은 2H2 + O2 → 2H2O이다."
+      }
+    ]
+  },
+  "expected": {
+    "parts": [
+      { "t": "황산 구리(" },
+      { "eq": "rm{Cu}rm{S}rm{O}_{4} cdot 5 rm{H}_{2}rm{O}" },
+      { "t": ") " },
+      { "eq": "1.0 rm{g}" },
+      { "t": "을 " },
+      { "eq": "25DEG rm{C}" },
+      { "t": "에서 녹이고, " },
+      { "eq": "rm{Na}^{+}" },
+      { "t": "와 " },
+      { "eq": "rm{S}rm{O}_{4}^{2-}" },
+      { "t": ", " },
+      { "eq": "rm{N}rm{H}_{4}^{+}" },
+      { "t": "와 " },
+      { "eq": "rm{O}rm{H}^{-}" },
+      { "t": "가 있다. 속력은 " },
+      { "eq": "9.8 rm{m}/rm{s}^{2}" },
+      { "t": ", 농도는 " },
+      { "eq": "0.1 rm{M}" },
+      { "t": ", 압력은 " },
+      { "eq": "1 rm{atm}" },
+      { "t": ", 밀도는 " },
+      { "eq": "1 rm{g}/rm{cm}^{3}" },
+      { "t": "이다. 반응식은 " },
+      { "eq": "2 rm{H}_{2}" },
+      { "t": " + " },
+      { "eq": "rm{O}_{2}" },
+      { "t": " → " },
+      { "eq": "2 rm{H}_{2}rm{O}" },
+      { "t": "이다." }
+    ]
+  }
+}

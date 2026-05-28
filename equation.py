@@ -35,18 +35,53 @@ _KOREAN_ELEMENT_NAMES = [
 
 _NO_DIGIT_FORMULA_WHITELIST = {
     "CO", "NO", "NO2", "SO2", "SO3", "HCl", "HBr", "HI",
-    "NaCl", "KCl", "NaOH", "KOH", "CaO", "MgO", "OH",
+    "HF", "HCN", "COOH", "NaCl", "KCl", "NaOH", "KOH", "CaO", "MgO", "OH",
 }
 
 _UNIT_ALIASES = {
     "몰": "mol",
+    "℃": "°C",
 }
 
-_SCIENCE_UNIT_TOKENS = [
-    "g/mol", "kg/mol", "mg/mol", "mol/L", "mol/l",
-    "kg", "mg", "g", "mol", "몰", "mL", "L",
-    "cm", "mm", "km", "m", "s",
+_SCIENCE_UNIT_PATTERNS = [
+    re.compile(r'^(?:°C|℃)'),
+    re.compile(r'^(?:kg|mg|g)\s*/\s*(?:mol|몰)', re.I),
+    re.compile(r'^(?:mol|몰)\s*/\s*L', re.I),
+    re.compile(r'^(?:km|cm|mm|m)\s*/\s*s(?:\s*(?:\^?\s*2|²))?', re.I),
+    re.compile(r'^(?:kg|mg|g)\s*/\s*cm(?:\s*(?:\^?\s*3|³))?', re.I),
+    re.compile(r'^몰'),
+    re.compile(r'^(?:mol|atm|kPa|Pa|kHz|Hz|kJ|J|kW|W|kV|V|mA|A|mL|L|kg|mg|g|km|cm|mm|m|ms|s|M|N|K)(?![A-Za-z0-9_])'),
 ]
+
+_SUBSCRIPT_DIGITS = {
+    "₀": "0",
+    "₁": "1",
+    "₂": "2",
+    "₃": "3",
+    "₄": "4",
+    "₅": "5",
+    "₆": "6",
+    "₇": "7",
+    "₈": "8",
+    "₉": "9",
+}
+
+_SUPERSCRIPT_CHARS = {
+    "⁰": "0",
+    "¹": "1",
+    "²": "2",
+    "³": "3",
+    "⁴": "4",
+    "⁵": "5",
+    "⁶": "6",
+    "⁷": "7",
+    "⁸": "8",
+    "⁹": "9",
+    "⁺": "+",
+    "⁻": "-",
+}
+
+_FORMULA_DOTS = {"·", "∙", "•", "⋅", "ㆍ"}
 
 
 # ---------------------------------------------------------------------------
@@ -88,15 +123,24 @@ def _normalize_chemical_eq(script: str) -> str:
     script = re.sub(r'rm\{\s*\{([A-Z][a-z]?)\}\s*\}', r'rm{\1}', script)
     script = re.sub(r'(rm\{[A-Z][a-z]?\})_(\d+)', r'\1_{\2}', script)
 
+    def _replace_group_subscript(m):
+        body, digits = m.group(1), m.group(2)
+        parsed = _parse_formula_source(f"{body}{digits}")
+        if parsed and _should_convert_parsed_formula(parsed):
+            return parsed["script"]
+        return m.group(0)
+
+    script = re.sub(r'rm\{([A-Z][A-Za-z()]+)\}_\{?(\d+)\}?', _replace_group_subscript, script)
+
     def _replace_legacy_rm(m):
         body = m.group(1)
         source = re.sub(r'_\{?(\d+)\}?', r'\1', body)
         parsed = _parse_formula_source(source)
-        if parsed and (parsed.get("has_subscript") or parsed.get("source") in _NO_DIGIT_FORMULA_WHITELIST):
+        if parsed and _should_convert_parsed_formula(parsed):
             return parsed["script"]
         return m.group(0)
 
-    script = re.sub(r'rm\{([A-Z][A-Za-z0-9_()]*)\}', _replace_legacy_rm, script)
+    script = re.sub(r'rm\{([A-Z][A-Za-z0-9_()+\-^·∙•⋅ㆍ₀₁₂₃₄₅₆₇₈₉⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻]*)\}', _replace_legacy_rm, script)
 
     atom = r'rm\{[A-Z][a-z]?\}(?:_\{\d+\})?'
     adjacent_atoms = re.compile(rf'({atom})\s+({atom})')
@@ -138,6 +182,13 @@ def _split_chemistry_text(text: str) -> list:
             i += unit["consumed"]
             continue
 
+        coefficient_formula = _read_coefficient_formula_at(text, i)
+        if coefficient_formula:
+            flush()
+            result.append({"eq": coefficient_formula["script"]})
+            i += coefficient_formula["consumed"]
+            continue
+
         formula = _read_formula_at(text, i)
         if formula:
             flush()
@@ -153,25 +204,79 @@ def _split_chemistry_text(text: str) -> list:
 
 
 def _read_quantity_unit_at(text: str, start: int):
-    m = re.match(r'(\d+(?:\.\d+)?)(\s*)([A-Za-z/가-힣]+)', text[start:])
+    if start > 0 and re.match(r'[A-Za-z0-9_]', text[start - 1]):
+        return None
+    m = re.match(r'([+-]?\d+(?:\.\d+)?)(\s*)', text[start:])
     if not m:
         return None
-    number, spacing, raw_unit_chunk = m.group(1), m.group(2), m.group(3)
-    token = next((candidate for candidate in _SCIENCE_UNIT_TOKENS if raw_unit_chunk.startswith(candidate)), None)
-    if not token:
+    number, spacing = m.group(1), m.group(2)
+    unit_start = start + len(number) + len(spacing)
+    unit = _read_science_unit_at(text, unit_start)
+    if not unit:
         return None
-    end = start + len(number) + len(spacing) + len(token)
+    end = unit_start + unit["consumed"]
     next_ch = text[end] if end < len(text) else ""
     if re.match(r'[A-Za-z]', next_ch):
         return None
     return {
-        "script": f"{number} {_format_unit_script(token)}",
+        "script": f"{number} {_format_unit_script(unit['raw'])}",
         "consumed": end - start,
     }
 
 
+def _read_science_unit_at(text: str, start: int):
+    chunk = text[start:]
+    for pattern in _SCIENCE_UNIT_PATTERNS:
+        m = pattern.match(chunk)
+        if m and m.group(0):
+            return {"raw": m.group(0), "consumed": len(m.group(0))}
+    return None
+
+
 def _format_unit_script(unit: str) -> str:
-    return "/".join(f"rm{{{_UNIT_ALIASES.get(part, part)}}}" for part in unit.split("/"))
+    normalized = _normalize_unit_source(unit)
+    if normalized == "°C":
+        return "DEG rm{C}"
+    if "/" in normalized:
+        numerator, denominator = normalized.split("/", 1)
+        return f"{_format_simple_unit_script(numerator)}/{_format_simple_unit_script(denominator)}"
+    return _format_simple_unit_script(normalized)
+
+
+def _normalize_unit_source(unit: str) -> str:
+    unit = re.sub(r'\s+', '', unit)
+    unit = unit.replace("／", "/")
+    unit = unit.replace("℃", "°C")
+    unit = unit.replace("²", "^2").replace("³", "^3")
+    unit = unit.replace("몰", "mol")
+    return unit
+
+
+def _format_simple_unit_script(unit: str) -> str:
+    aliased = _UNIT_ALIASES.get(unit, unit)
+    m = re.match(r'^([A-Za-zμ]+)(?:\^?([23]))?$', aliased)
+    if m:
+        base, exponent = m.group(1), m.group(2)
+        return f"rm{{{base}}}" + (f"^{{{exponent}}}" if exponent else "")
+    return f"rm{{{aliased}}}"
+
+
+def _read_coefficient_formula_at(text: str, start: int):
+    if start > 0 and re.match(r'[A-Za-z0-9_]', text[start - 1]):
+        return None
+    m = re.match(r'(\d+)(?=[A-Z(])', text[start:])
+    if not m:
+        return None
+    coefficient = m.group(1)
+    formula_start = start + len(coefficient)
+    parsed = _read_formula_candidate_at(text, formula_start, lambda _end, _parsed: True)
+    if not parsed:
+        return None
+    return {
+        **parsed,
+        "script": f"{coefficient} {parsed['script']}",
+        "consumed": len(coefficient) + parsed["consumed"],
+    }
 
 
 def _read_formula_at(text: str, start: int):
@@ -180,8 +285,16 @@ def _read_formula_at(text: str, start: int):
     if start > 0 and re.match(r'[A-Za-z0-9_]', text[start - 1]):
         return None
 
+    return _read_formula_candidate_at(
+        text,
+        start,
+        lambda end, parsed: _should_convert_formula(text, start, end, parsed),
+    )
+
+
+def _read_formula_candidate_at(text: str, start: int, accept):
     scan_end = start
-    while scan_end < len(text) and re.match(r'[A-Za-z0-9()+\-^{}]', text[scan_end]):
+    while scan_end < len(text) and re.match(r'[A-Za-z0-9()+\-^{}·∙•⋅ㆍ₀₁₂₃₄₅₆₇₈₉⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻]', text[scan_end]):
         scan_end += 1
 
     for end in range(scan_end, start, -1):
@@ -189,7 +302,10 @@ def _read_formula_at(text: str, start: int):
         parsed = _parse_formula_source(source)
         if not parsed:
             continue
-        if not _should_convert_formula(text, start, end, parsed):
+        next_ch = text[end] if end < len(text) else ""
+        if re.match(r'[A-Za-z0-9₀₁₂₃₄₅₆₇₈₉⁰¹²³⁴⁵⁶⁷⁸⁹]', next_ch):
+            continue
+        if not accept(end, parsed):
             continue
         return {**parsed, "consumed": end - start}
 
@@ -200,11 +316,22 @@ def _should_convert_formula(text: str, start: int, end: int, parsed: dict) -> bo
     next_ch = text[end] if end < len(text) else ""
     if re.match(r'[A-Za-z0-9]', next_ch):
         return False
-    if parsed["has_subscript"]:
+    if parsed["has_subscript"] or parsed.get("has_charge"):
         return True
     if _has_korean_element_name_before_paren(text, start, end):
         return True
-    if parsed["element_count"] >= 2 and parsed["source"] in _NO_DIGIT_FORMULA_WHITELIST:
+    if _should_convert_parsed_formula(parsed):
+        return True
+    return False
+
+
+def _should_convert_parsed_formula(parsed: dict) -> bool:
+    if parsed.get("has_subscript") or parsed.get("has_charge"):
+        return True
+    if parsed.get("element_count", 0) >= 2 and (
+        parsed.get("source") in _NO_DIGIT_FORMULA_WHITELIST or
+        parsed.get("has_lowercase_element")
+    ):
         return True
     return False
 
@@ -219,22 +346,94 @@ def _has_korean_element_name_before_paren(text: str, start: int, end: int) -> bo
 
 
 def _parse_formula_source(source: str):
-    charge_match = re.search(r'(?:\^\{?(\d*[+-])\}?|(\d*[+-]))$', source)
+    normalized_source = _normalize_formula_source(source)
     charge = ""
-    body = source
-    if charge_match:
-        charge = charge_match.group(1) or charge_match.group(2) or ""
-        body = source[:charge_match.start()]
+    body = normalized_source
+    explicit_charge = re.search(r'\^\{?(\d*[+-])\}?$', normalized_source)
+    trailing_sign = None if explicit_charge else re.search(r'([+-])$', normalized_source)
+    if explicit_charge:
+        charge = explicit_charge.group(1) or ""
+        body = normalized_source[:explicit_charge.start()]
+    elif trailing_sign:
+        charge = trailing_sign.group(1) or ""
+        body = normalized_source[:-1]
     if not body:
         return None
 
-    parsed = _parse_formula_body(body, 0, False)
-    if not parsed or parsed["index"] != len(body) or parsed["element_count"] == 0:
+    parsed = _parse_formula_segments(body)
+    if not parsed or parsed["element_count"] == 0:
         return None
     return {
-        "source": source,
+        "source": normalized_source,
         "script": parsed["script"] + (f"^{{{charge}}}" if charge else ""),
         "has_subscript": parsed["has_subscript"],
+        "has_charge": bool(charge),
+        "has_lowercase_element": parsed["has_lowercase_element"],
+        "element_count": parsed["element_count"],
+    }
+
+
+def _normalize_formula_source(source: str) -> str:
+    out = []
+    superscript_suffix = []
+    for ch in source:
+        if ch in _SUBSCRIPT_DIGITS:
+            out.append(_SUBSCRIPT_DIGITS[ch])
+        elif ch in _SUPERSCRIPT_CHARS:
+            superscript_suffix.append(_SUPERSCRIPT_CHARS[ch])
+        elif ch in _FORMULA_DOTS:
+            out.append("·")
+        elif ch in {"−", "–"}:
+            out.append("-")
+        else:
+            out.append(ch)
+    suffix = "".join(superscript_suffix)
+    return "".join(out) + (f"^{suffix}" if suffix else "")
+
+
+def _parse_formula_segments(body: str):
+    segments = body.split("·")
+    if any(segment == "" for segment in segments):
+        return None
+
+    scripts = []
+    has_subscript = False
+    has_lowercase_element = False
+    element_count = 0
+
+    for idx, segment_source in enumerate(segments):
+        segment = _parse_formula_segment(segment_source, idx > 0)
+        if not segment:
+            return None
+        scripts.append(segment["script"])
+        has_subscript = has_subscript or segment["has_subscript"]
+        has_lowercase_element = has_lowercase_element or segment["has_lowercase_element"]
+        element_count += segment["element_count"]
+
+    return {
+        "script": " cdot ".join(scripts),
+        "has_subscript": has_subscript,
+        "has_lowercase_element": has_lowercase_element,
+        "element_count": element_count,
+    }
+
+
+def _parse_formula_segment(source: str, allow_leading_coefficient: bool):
+    coefficient = ""
+    start = 0
+    if allow_leading_coefficient:
+        coefficient, start = _read_digits(source, 0)
+    if start >= len(source):
+        return None
+
+    parsed = _parse_formula_body(source, start, False)
+    if not parsed or parsed["index"] != len(source) or parsed["element_count"] == 0:
+        return None
+
+    return {
+        "script": f"{coefficient} {parsed['script']}" if coefficient else parsed["script"],
+        "has_subscript": parsed["has_subscript"],
+        "has_lowercase_element": parsed["has_lowercase_element"],
         "element_count": parsed["element_count"],
     }
 
@@ -243,6 +442,7 @@ def _parse_formula_body(source: str, start: int, stop_at_paren: bool):
     script = []
     index = start
     has_subscript = False
+    has_lowercase_element = False
     element_count = 0
 
     while index < len(source):
@@ -261,6 +461,7 @@ def _parse_formula_body(source: str, start: int, stop_at_paren: bool):
                 script.append(f"_{{{digits}}}")
                 has_subscript = True
             has_subscript = has_subscript or inner["has_subscript"]
+            has_lowercase_element = has_lowercase_element or inner["has_lowercase_element"]
             element_count += inner["element_count"]
             continue
 
@@ -271,6 +472,7 @@ def _parse_formula_body(source: str, start: int, stop_at_paren: bool):
         if index + 1 < len(source) and re.match(r'[a-z]', source[index + 1]):
             symbol += source[index + 1]
             index += 1
+            has_lowercase_element = True
         if symbol not in _ELEMENT_SYMBOLS:
             return None
         index += 1
@@ -290,6 +492,7 @@ def _parse_formula_body(source: str, start: int, stop_at_paren: bool):
         "script": "".join(script),
         "index": index,
         "has_subscript": has_subscript,
+        "has_lowercase_element": has_lowercase_element,
         "element_count": element_count,
     }
 
@@ -788,26 +991,39 @@ def _estimate_compact_rm_width(script):
     while i < len(visible):
         ch = visible[i]
         if ch == '_':
-            sub, next_i = _read_subscript_payload(visible, i + 1)
-            total += max(len(sub), 1) * 260
+            sub, next_i = _read_script_payload(visible, i + 1)
+            total += max(len(sub), 1) * 270
             i = next_i
+            continue
+        if ch == '^':
+            sup, next_i = _read_script_payload(visible, i + 1)
+            total += max(len(sup), 1) * 250
+            i = next_i
+            continue
+        if visible.startswith("DEG", i):
+            total += 320
+            i += 3
+            continue
+        if visible.startswith("cdot", i):
+            total += 300
+            i += 4
             continue
         if ch in '{}':
             i += 1
             continue
         if ch.isspace():
-            total += 180
+            total += 190
         elif ch == '~':
             total += 240
         elif ch in '/().,+-':
-            total += 300
-        elif ch.isdigit():
             total += 310
+        elif ch.isdigit():
+            total += 320
         else:
-            total += 430
+            total += 440
         i += 1
 
-    return min(max(int(total * 1.18) + 420, 800), 30000)
+    return min(max(int(total * 1.26) + 560, 900), 30000)
 
 
 def _compact_rm_visible_script(script):
@@ -817,7 +1033,7 @@ def _compact_rm_visible_script(script):
     return s
 
 
-def _read_subscript_payload(script, start):
+def _read_script_payload(script, start):
     if start < len(script) and script[start] == '{':
         end = script.find('}', start + 1)
         if end != -1:

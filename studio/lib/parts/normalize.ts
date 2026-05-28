@@ -17,6 +17,8 @@ type FormulaParse = {
   source: string;
   script: string;
   hasSubscript: boolean;
+  hasCharge: boolean;
+  hasLowercaseElement: boolean;
   elementCount: number;
   consumed: number;
 };
@@ -48,18 +50,53 @@ const KOREAN_ELEMENT_NAMES = [
 
 const NO_DIGIT_FORMULA_WHITELIST = new Set([
   "CO", "NO", "NO2", "SO2", "SO3", "HCl", "HBr", "HI",
-  "NaCl", "KCl", "NaOH", "KOH", "CaO", "MgO", "OH",
+  "HF", "HCN", "COOH", "NaCl", "KCl", "NaOH", "KOH", "CaO", "MgO", "OH",
 ]);
 
 const UNIT_ALIASES: Record<string, string> = {
   "몰": "mol",
+  "℃": "°C",
 };
 
-const UNIT_TOKENS = [
-  "g/mol", "kg/mol", "mg/mol", "mol/L", "mol/l",
-  "kg", "mg", "g", "mol", "몰", "mL", "L",
-  "cm", "mm", "km", "m", "s",
+const SCIENCE_UNIT_PATTERNS: RegExp[] = [
+  /^(?:°C|℃)/,
+  /^(?:kg|mg|g)\s*\/\s*(?:mol|몰)/i,
+  /^(?:mol|몰)\s*\/\s*L/i,
+  /^(?:km|cm|mm|m)\s*\/\s*s(?:\s*(?:\^?\s*2|²))?/i,
+  /^(?:kg|mg|g)\s*\/\s*cm(?:\s*(?:\^?\s*3|³))?/i,
+  /^몰/,
+  /^(?:mol|atm|kPa|Pa|kHz|Hz|kJ|J|kW|W|kV|V|mA|A|mL|L|kg|mg|g|km|cm|mm|m|ms|s|M|N|K)(?![A-Za-z0-9_])/,
 ];
+
+const SUBSCRIPT_DIGITS: Record<string, string> = {
+  "₀": "0",
+  "₁": "1",
+  "₂": "2",
+  "₃": "3",
+  "₄": "4",
+  "₅": "5",
+  "₆": "6",
+  "₇": "7",
+  "₈": "8",
+  "₉": "9",
+};
+
+const SUPERSCRIPT_CHARS: Record<string, string> = {
+  "⁰": "0",
+  "¹": "1",
+  "²": "2",
+  "³": "3",
+  "⁴": "4",
+  "⁵": "5",
+  "⁶": "6",
+  "⁷": "7",
+  "⁸": "8",
+  "⁹": "9",
+  "⁺": "+",
+  "⁻": "-",
+};
+
+const FORMULA_DOTS = new Set(["·", "∙", "•", "⋅", "ㆍ"]);
 
 /**
  * Apply deterministic normalization rules to a parts array.
@@ -126,10 +163,15 @@ function normalizeChemicalEq(script: string): string {
   let s = script.replace(/rm\{\s*\{([A-Z][a-z]?)\}\s*\}/g, "rm{$1}");
   s = s.replace(/(rm\{[A-Z][a-z]?\})_(\d+)/g, "$1_{$2}");
 
-  s = s.replace(/rm\{([A-Z][A-Za-z0-9_()]*)\}/g, (match, body: string) => {
+  s = s.replace(/rm\{([A-Z][A-Za-z()]+)\}_\{?(\d+)\}?/g, (match, body: string, digits: string) => {
+    const parsed = parseFormulaSource(`${body}${digits}`);
+    return parsed && shouldConvertParsedFormula(parsed) ? parsed.script : match;
+  });
+
+  s = s.replace(/rm\{([A-Z][A-Za-z0-9_()+\-^·∙•⋅ㆍ₀₁₂₃₄₅₆₇₈₉⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻]*)\}/g, (match, body: string) => {
     const source = body.replace(/_\{?(\d+)\}?/g, "$1");
     const parsed = parseFormulaSource(source);
-    return parsed && (parsed.hasSubscript || NO_DIGIT_FORMULA_WHITELIST.has(parsed.source)) ? parsed.script : match;
+    return parsed && shouldConvertParsedFormula(parsed) ? parsed.script : match;
   });
 
   let prev = "";
@@ -176,6 +218,14 @@ function splitChemistryText(text: string): Part[] {
       continue;
     }
 
+    const coefficientFormula = readCoefficientFormulaAt(text, i);
+    if (coefficientFormula) {
+      flush();
+      result.push({ eq: coefficientFormula.script });
+      i += coefficientFormula.consumed;
+      continue;
+    }
+
     const formula = readFormulaAt(text, i);
     if (formula) {
       flush();
@@ -193,35 +243,102 @@ function splitChemistryText(text: string): Part[] {
 }
 
 function readQuantityUnitAt(text: string, start: number): { script: string; consumed: number } | null {
+  if (start > 0 && /[A-Za-z0-9_]/.test(text[start - 1])) {
+    return null;
+  }
+
   const slice = text.slice(start);
-  const match = slice.match(/^(\d+(?:\.\d+)?)(\s*)([A-Za-z/가-힣]+)/);
+  const match = slice.match(/^([+-]?\d+(?:\.\d+)?)(\s*)/);
   if (!match) {
     return null;
   }
 
-  const [, number, , rawUnitChunk] = match;
-  const token = UNIT_TOKENS.find((candidate) => rawUnitChunk.startsWith(candidate));
-  if (!token) {
+  const [, number, spacing] = match;
+  const unitStart = start + number.length + spacing.length;
+  const unit = readScienceUnitAt(text, unitStart);
+  if (!unit) {
     return null;
   }
 
-  const end = start + number.length + match[2].length + token.length;
+  const end = unitStart + unit.consumed;
   const next = text[end] ?? "";
   if (/[A-Za-z]/.test(next)) {
     return null;
   }
 
   return {
-    script: `${number} ${formatUnitScript(token)}`,
+    script: `${number} ${formatUnitScript(unit.raw)}`,
     consumed: end - start,
   };
 }
 
+function readScienceUnitAt(text: string, start: number): { raw: string; consumed: number } | null {
+  const slice = text.slice(start);
+  for (const pattern of SCIENCE_UNIT_PATTERNS) {
+    const match = slice.match(pattern);
+    if (match?.[0]) {
+      return { raw: match[0], consumed: match[0].length };
+    }
+  }
+  return null;
+}
+
 function formatUnitScript(unit: string): string {
+  const normalized = normalizeUnitSource(unit);
+  if (normalized === "°C") {
+    return "DEG rm{C}";
+  }
+  const slashIndex = normalized.indexOf("/");
+  if (slashIndex !== -1) {
+    const numerator = normalized.slice(0, slashIndex);
+    const denominator = normalized.slice(slashIndex + 1);
+    return `${formatSimpleUnitScript(numerator)}/${formatSimpleUnitScript(denominator)}`;
+  }
+  return formatSimpleUnitScript(normalized);
+}
+
+function normalizeUnitSource(unit: string): string {
   return unit
-    .split("/")
-    .map((part) => `rm{${UNIT_ALIASES[part] ?? part}}`)
-    .join("/");
+    .replace(/\s+/g, "")
+    .replace(/／/g, "/")
+    .replace(/℃/g, "°C")
+    .replace(/²/g, "^2")
+    .replace(/³/g, "^3")
+    .replace(/몰/g, "mol");
+}
+
+function formatSimpleUnitScript(unit: string): string {
+  const aliased = UNIT_ALIASES[unit] ?? unit;
+  const match = aliased.match(/^([A-Za-zμ]+)(?:\^?([23]))?$/);
+  if (match) {
+    const [, base, exponent] = match;
+    return `rm{${base}}${exponent ? `^{${exponent}}` : ""}`;
+  }
+  return `rm{${aliased}}`;
+}
+
+function readCoefficientFormulaAt(text: string, start: number): FormulaParse | null {
+  if (start > 0 && /[A-Za-z0-9_]/.test(text[start - 1])) {
+    return null;
+  }
+
+  const match = text.slice(start).match(/^(\d+)(?=[A-Z(])/);
+  if (!match) {
+    return null;
+  }
+
+  const coefficient = match[1];
+  const formulaStart = start + coefficient.length;
+  const parsed = readFormulaCandidateAt(text, formulaStart, () => true);
+  if (!parsed) {
+    return null;
+  }
+
+  return {
+    ...parsed,
+    script: `${coefficient} ${parsed.script}`,
+    consumed: coefficient.length + parsed.consumed,
+  };
 }
 
 function readFormulaAt(text: string, start: number): FormulaParse | null {
@@ -232,8 +349,16 @@ function readFormulaAt(text: string, start: number): FormulaParse | null {
     return null;
   }
 
+  return readFormulaCandidateAt(text, start, (end, parsed) => shouldConvertFormula(text, start, end, parsed));
+}
+
+function readFormulaCandidateAt(
+  text: string,
+  start: number,
+  accept: (end: number, parsed: Omit<FormulaParse, "consumed">) => boolean
+): FormulaParse | null {
   let scanEnd = start;
-  while (scanEnd < text.length && /[A-Za-z0-9()+\-^{}]/.test(text[scanEnd])) {
+  while (scanEnd < text.length && /[A-Za-z0-9()+\-^{}·∙•⋅ㆍ₀₁₂₃₄₅₆₇₈₉⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻]/.test(text[scanEnd])) {
     scanEnd++;
   }
 
@@ -243,7 +368,10 @@ function readFormulaAt(text: string, start: number): FormulaParse | null {
     if (!parsed) {
       continue;
     }
-    if (!shouldConvertFormula(text, start, end, parsed)) {
+    if (/[A-Za-z0-9₀₁₂₃₄₅₆₇₈₉⁰¹²³⁴⁵⁶⁷⁸⁹]/.test(text[end] ?? "")) {
+      continue;
+    }
+    if (!accept(end, parsed)) {
       continue;
     }
     return { ...parsed, consumed: end - start };
@@ -257,13 +385,23 @@ function shouldConvertFormula(text: string, start: number, end: number, parsed: 
   if (/[A-Za-z0-9]/.test(next)) {
     return false;
   }
-  if (parsed.hasSubscript) {
+  if (parsed.hasSubscript || parsed.hasCharge) {
     return true;
   }
   if (hasKoreanElementNameBeforeParen(text, start, end)) {
     return true;
   }
-  if (parsed.elementCount >= 2 && NO_DIGIT_FORMULA_WHITELIST.has(parsed.source)) {
+  if (shouldConvertParsedFormula(parsed)) {
+    return true;
+  }
+  return false;
+}
+
+function shouldConvertParsedFormula(parsed: Omit<FormulaParse, "consumed">): boolean {
+  if (parsed.hasSubscript || parsed.hasCharge) {
+    return true;
+  }
+  if (parsed.elementCount >= 2 && (NO_DIGIT_FORMULA_WHITELIST.has(parsed.source) || parsed.hasLowercaseElement)) {
     return true;
   }
   return false;
@@ -278,22 +416,109 @@ function hasKoreanElementNameBeforeParen(text: string, start: number, end: numbe
 }
 
 function parseFormulaSource(source: string): Omit<FormulaParse, "consumed"> | null {
-  const chargeMatch = source.match(/(?:\^\{?(\d*[+-])\}?|(\d*[+-]))$/);
-  const charge = chargeMatch ? (chargeMatch[1] ?? chargeMatch[2]) : "";
-  const body = charge ? source.slice(0, source.length - chargeMatch![0].length) : source;
+  const normalizedSource = normalizeFormulaSource(source);
+  const explicitCharge = normalizedSource.match(/\^\{?(\d*[+-])\}?$/);
+  const trailingSign = explicitCharge ? null : normalizedSource.match(/([+-])$/);
+  const charge = explicitCharge ? explicitCharge[1] : trailingSign ? trailingSign[1] : "";
+  const body = explicitCharge
+    ? normalizedSource.slice(0, explicitCharge.index)
+    : trailingSign
+      ? normalizedSource.slice(0, normalizedSource.length - 1)
+      : normalizedSource;
   if (!body) {
     return null;
   }
 
-  const parsed = parseFormulaBody(body, 0, false);
-  if (!parsed || parsed.index !== body.length || parsed.elementCount === 0) {
+  const parsed = parseFormulaSegments(body);
+  if (!parsed || parsed.elementCount === 0) {
     return null;
   }
 
   return {
-    source,
+    source: normalizedSource,
     script: `${parsed.script}${charge ? `^{${charge}}` : ""}`,
     hasSubscript: parsed.hasSubscript,
+    hasCharge: Boolean(charge),
+    hasLowercaseElement: parsed.hasLowercaseElement,
+    elementCount: parsed.elementCount,
+  };
+}
+
+function normalizeFormulaSource(source: string): string {
+  let out = "";
+  let superscriptSuffix = "";
+  for (const ch of source) {
+    if (SUBSCRIPT_DIGITS[ch] !== undefined) {
+      out += SUBSCRIPT_DIGITS[ch];
+    } else if (SUPERSCRIPT_CHARS[ch] !== undefined) {
+      superscriptSuffix += SUPERSCRIPT_CHARS[ch];
+    } else if (FORMULA_DOTS.has(ch)) {
+      out += "·";
+    } else if (ch === "−" || ch === "–") {
+      out += "-";
+    } else {
+      out += ch;
+    }
+  }
+  return out + (superscriptSuffix ? `^${superscriptSuffix}` : "");
+}
+
+function parseFormulaSegments(
+  body: string
+): { script: string; hasSubscript: boolean; hasLowercaseElement: boolean; elementCount: number } | null {
+  const segments = body.split("·");
+  if (segments.some((segment) => segment.length === 0)) {
+    return null;
+  }
+
+  const scripts: string[] = [];
+  let hasSubscript = false;
+  let hasLowercaseElement = false;
+  let elementCount = 0;
+
+  for (let index = 0; index < segments.length; index++) {
+    const segment = parseFormulaSegment(segments[index], index > 0);
+    if (!segment) {
+      return null;
+    }
+    scripts.push(segment.script);
+    hasSubscript = hasSubscript || segment.hasSubscript;
+    hasLowercaseElement = hasLowercaseElement || segment.hasLowercaseElement;
+    elementCount += segment.elementCount;
+  }
+
+  return {
+    script: scripts.join(" cdot "),
+    hasSubscript,
+    hasLowercaseElement,
+    elementCount,
+  };
+}
+
+function parseFormulaSegment(
+  source: string,
+  allowLeadingCoefficient: boolean
+): { script: string; hasSubscript: boolean; hasLowercaseElement: boolean; elementCount: number } | null {
+  let coefficient = "";
+  let start = 0;
+  if (allowLeadingCoefficient) {
+    const digits = readDigits(source, 0);
+    coefficient = digits.value;
+    start = digits.index;
+  }
+  if (start >= source.length) {
+    return null;
+  }
+
+  const parsed = parseFormulaBody(source, start, false);
+  if (!parsed || parsed.index !== source.length || parsed.elementCount === 0) {
+    return null;
+  }
+
+  return {
+    script: coefficient ? `${coefficient} ${parsed.script}` : parsed.script,
+    hasSubscript: parsed.hasSubscript,
+    hasLowercaseElement: parsed.hasLowercaseElement,
     elementCount: parsed.elementCount,
   };
 }
@@ -302,10 +527,11 @@ function parseFormulaBody(
   source: string,
   start: number,
   stopAtParen: boolean
-): { script: string; index: number; hasSubscript: boolean; elementCount: number } | null {
+): { script: string; index: number; hasSubscript: boolean; hasLowercaseElement: boolean; elementCount: number } | null {
   let script = "";
   let index = start;
   let hasSubscript = false;
+  let hasLowercaseElement = false;
   let elementCount = 0;
 
   while (index < source.length) {
@@ -327,6 +553,7 @@ function parseFormulaBody(
         hasSubscript = true;
       }
       hasSubscript = hasSubscript || inner.hasSubscript;
+      hasLowercaseElement = hasLowercaseElement || inner.hasLowercaseElement;
       elementCount += inner.elementCount;
       index = digits.index;
       continue;
@@ -340,6 +567,7 @@ function parseFormulaBody(
     if (index + 1 < source.length && /[a-z]/.test(source[index + 1])) {
       symbol += source[index + 1];
       index++;
+      hasLowercaseElement = true;
     }
     if (!ELEMENT_SYMBOLS.has(symbol)) {
       return null;
@@ -363,7 +591,7 @@ function parseFormulaBody(
     return null;
   }
 
-  return { script, index, hasSubscript, elementCount };
+  return { script, index, hasSubscript, hasLowercaseElement, elementCount };
 }
 
 function readDigits(source: string, start: number): { value: string; index: number } {
