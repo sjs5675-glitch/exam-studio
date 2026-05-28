@@ -18,7 +18,7 @@ if [ -d "$DEST/.git" ]; then
   git -C "$DEST" fetch origin
   git -C "$DEST" reset --hard origin/main
 else
-  git clone https://github.com/PNKmath/exam-studio.git "$DEST"
+  git clone https://github.com/sjs5675-glitch/exam-studio.git "$DEST"
 fi
 
 # 2. installer 위임

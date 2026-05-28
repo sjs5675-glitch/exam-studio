@@ -25,7 +25,7 @@ if (Test-Path (Join-Path $Dest ".git")) {
     git -C $Dest reset --hard origin/main --quiet
     if ($LASTEXITCODE -ne 0) { Write-Host "X git reset 실패." -ForegroundColor Red; exit 1 }
 } else {
-    git clone --quiet https://github.com/PNKmath/exam-studio.git $Dest
+    git clone --quiet https://github.com/sjs5675-glitch/exam-studio.git $Dest
     if ($LASTEXITCODE -ne 0) { Write-Host "X git clone 실패 — 네트워크 상태 확인 후 다시 실행하세요." -ForegroundColor Red; exit 1 }
 }
 $ErrorActionPreference = "Stop"
