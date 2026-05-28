@@ -22,7 +22,7 @@ Import direction: ids → equation → shapes → tables → assemble → build_
 
 import re
 from ids import next_eq_id, next_zorder
-from equation import xml_escape, make_equation_xml, lineseg_params_for_eq, make_lineseg
+from equation import xml_escape, make_equation_xml, lineseg_params_for_eq, make_lineseg, normalize_parts
 from shapes import make_proof_table as _make_proof_table_base
 
 BOGI_TABLE_TARGET_WIDTH = 24400
@@ -738,7 +738,7 @@ def make_bogi_table(condition_box, base_path):
             break
         label = labels[idx]
         item_content = ""
-        for part in item.get("parts", []):
+        for part in normalize_parts(item.get("parts", [])):
             if "eq" in part:
                 item_content += make_equation_xml(part["eq"])
             elif "t" in part:

@@ -1,0 +1,18 @@
+{
+  "id": "SCI-02",
+  "description": "Science text parts: diagram labels stay text, element names in parentheses become equations",
+  "input": {
+    "parts": [
+      { "t": "그림 (B)의 A 지점과 그림 (C)를 비교하고, 탄소(C)와 산소(O)를 고르시오." }
+    ]
+  },
+  "expected": {
+    "parts": [
+      { "t": "그림 (B)의 A 지점과 그림 (C)를 비교하고, 탄소(" },
+      { "eq": "rm{C}" },
+      { "t": ")와 산소(" },
+      { "eq": "rm{O}" },
+      { "t": ")를 고르시오." }
+    ]
+  }
+}

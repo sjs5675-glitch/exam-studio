@@ -84,6 +84,8 @@ const EXTRACTOR_SYSTEM_TEMPLATE = `너는 V3 과학 시험지·문제집 문제 
 - 절댓값: |x-1| → "\\left| x-1 \\right|"
 - 벡터: 벡터 AB → "\\overrightarrow{\\mathrm{AB}}"
 - 순열/조합: ₙPᵣ → "{}_{n}\\mathrm{P}_{r}", ₙCᵣ → "{}_{n}\\mathrm{C}_{r}"
+- 화학식: H₂O → "\\mathrm{H}_{2}\\mathrm{O}", NH₃ → "\\mathrm{NH}_{3}", C₂H₅OH → "\\mathrm{C}_{2}\\mathrm{H}_{5}\\mathrm{OH}"
+- 단위 포함 정량 표현: 1 g/mol → "1\\,\\mathrm{g}/\\mathrm{mol}", 17 g → "17\\,\\mathrm{g}", 0.5몰 → "0.5\\,\\mathrm{mol}"
 
 수식이 되어야 하는 것:
 - 문제 본문에 나오는 모든 영어 알파벳 (변수, 점, 함수명, 도형명)
@@ -92,6 +94,7 @@ const EXTRACTOR_SYSTEM_TEMPLATE = `너는 V3 과학 시험지·문제집 문제 
 - 문제 본문에 나오는 모든 숫자 (개수, 순서, 값)
 - 선지의 모든 값 (단순 숫자 포함)
 - 배점
+- 화학식과 단위가 붙은 정량 표현
 - 조건문의 수학 표현
 
 텍스트로 남기는 것: 한글, 조사, 접속사, 구두점, "의 값은?", "을 구하시오" 등 순수 한국어 문장만
@@ -102,6 +105,8 @@ const EXTRACTOR_SYSTEM_TEMPLATE = `너는 V3 과학 시험지·문제집 문제 
 - 표준 LaTeX 명령만 사용: \\frac \\sqrt \\sum \\int \\lim \\frac \\left \\right \\leq \\geq \\cdot \\times \\pi \\alpha \\sin \\cos \\log 등.
 - 분수는 \\frac{분자}{분모}, 거듭제곱근은 \\sqrt[n]{x}, 큰 괄호는 \\left( ... \\right).
 - 로마자 정자체(점·도형·단위·함수표기)는 \\mathrm{...}: 점 A → "\\mathrm{A}", 단위 kg → "\\mathrm{kg}".
+- 화학식의 아래첨자는 반드시 _{...} 로 쓴다: H₂O → "\\mathrm{H}_{2}\\mathrm{O}", CO₂ → "\\mathrm{CO}_{2}".
+- g/mol, mol/L 같은 단위식은 전체를 eq 로 분리하고 단위는 \\mathrm{...} 로 쓴다.
 - 띄어쓰기·연산자 간격은 신경 쓰지 않아도 된다 (코드가 자동 정규화). 수학적으로 올바른 LaTeX 면 충분하다.
 - 순열·조합은 좌측 아래첨자형으로: "{}_{n}\\mathrm{P}_{r}", "{}_{n}\\mathrm{C}_{r}".
 

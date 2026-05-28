@@ -8,6 +8,46 @@ Import direction: ids → equation → shapes → tables → assemble → build_
 import re
 from ids import next_eq_id, next_zorder
 
+_ELEMENT_SYMBOLS = {
+    "H", "He", "Li", "Be", "B", "C", "N", "O", "F", "Ne",
+    "Na", "Mg", "Al", "Si", "P", "S", "Cl", "Ar",
+    "K", "Ca", "Sc", "Ti", "V", "Cr", "Mn", "Fe", "Co", "Ni",
+    "Cu", "Zn", "Ga", "Ge", "As", "Se", "Br", "Kr",
+    "Rb", "Sr", "Y", "Zr", "Nb", "Mo", "Tc", "Ru", "Rh", "Pd",
+    "Ag", "Cd", "In", "Sn", "Sb", "Te", "I", "Xe",
+    "Cs", "Ba", "La", "Ce", "Pr", "Nd", "Pm", "Sm", "Eu", "Gd",
+    "Tb", "Dy", "Ho", "Er", "Tm", "Yb", "Lu",
+    "Hf", "Ta", "W", "Re", "Os", "Ir", "Pt", "Au", "Hg",
+    "Tl", "Pb", "Bi", "Po", "At", "Rn",
+    "Fr", "Ra", "Ac", "Th", "Pa", "U", "Np", "Pu", "Am", "Cm",
+    "Bk", "Cf", "Es", "Fm", "Md", "No", "Lr",
+    "Rf", "Db", "Sg", "Bh", "Hs", "Mt", "Ds", "Rg", "Cn",
+    "Nh", "Fl", "Mc", "Lv", "Ts", "Og",
+}
+
+_KOREAN_ELEMENT_NAMES = [
+    "수소", "헬륨", "리튬", "베릴륨", "붕소", "탄소", "질소", "산소", "플루오린", "네온",
+    "나트륨", "마그네슘", "알루미늄", "규소", "인", "황", "염소", "아르곤",
+    "칼륨", "칼슘", "철", "구리", "아연", "은", "금", "납", "아이오딘", "브로민",
+    "암모니아", "메테인", "메탄", "에탄올", "이산화 탄소", "이산화탄소", "일산화 탄소",
+    "염화 나트륨", "염화나트륨", "수산화 나트륨", "수산화나트륨",
+]
+
+_NO_DIGIT_FORMULA_WHITELIST = {
+    "CO", "NO", "NO2", "SO2", "SO3", "HCl", "HBr", "HI",
+    "NaCl", "KCl", "NaOH", "KOH", "CaO", "MgO",
+}
+
+_UNIT_ALIASES = {
+    "몰": "mol",
+}
+
+_SCIENCE_UNIT_TOKENS = [
+    "g/mol", "kg/mol", "mg/mol", "mol/L", "mol/l",
+    "kg", "mg", "g", "mol", "몰", "mL", "L",
+    "cm", "mm", "km", "m", "s",
+]
+
 
 # ---------------------------------------------------------------------------
 # Parts normalizer (R-01 ~ R-10)
@@ -19,6 +59,7 @@ def normalize_parts(parts: list) -> list:
     Idempotent: normalize_parts(normalize_parts(x)) == normalize_parts(x).
     Rules implemented per docs/planning/create-v4-deterministic-codification/rule-taxonomy.md.
     """
+    parts = _split_text_chemistry(parts or [])
     parts = _split_equation_chains(parts)        # R-01
     parts = [_normalize_part(p) for p in parts]
     return parts
@@ -40,6 +81,199 @@ def _normalize_part(part: dict) -> dict:
     if "t" in part:
         return {**part, "t": _enforce_rm_units(part["t"])}  # R-09 (text-side)
     return part
+
+
+def _split_text_chemistry(parts: list) -> list:
+    result = []
+    for part in parts:
+        if "t" in part:
+            result.extend(_split_chemistry_text(part["t"]))
+        else:
+            result.append(part)
+    return result
+
+
+def _split_chemistry_text(text: str) -> list:
+    result = []
+    buffer = []
+    i = 0
+    n = len(text or "")
+
+    def flush():
+        nonlocal buffer
+        if buffer:
+            result.append({"t": "".join(buffer)})
+            buffer = []
+
+    while i < n:
+        unit = _read_quantity_unit_at(text, i)
+        if unit:
+            flush()
+            result.append({"eq": unit["script"]})
+            i += unit["consumed"]
+            continue
+
+        formula = _read_formula_at(text, i)
+        if formula:
+            flush()
+            result.append({"eq": formula["script"]})
+            i += formula["consumed"]
+            continue
+
+        buffer.append(text[i])
+        i += 1
+
+    flush()
+    return result
+
+
+def _read_quantity_unit_at(text: str, start: int):
+    m = re.match(r'(\d+(?:\.\d+)?)(\s*)([A-Za-z/가-힣]+)', text[start:])
+    if not m:
+        return None
+    number, spacing, raw_unit_chunk = m.group(1), m.group(2), m.group(3)
+    token = next((candidate for candidate in _SCIENCE_UNIT_TOKENS if raw_unit_chunk.startswith(candidate)), None)
+    if not token:
+        return None
+    end = start + len(number) + len(spacing) + len(token)
+    next_ch = text[end] if end < len(text) else ""
+    if re.match(r'[A-Za-z]', next_ch):
+        return None
+    return {
+        "script": f"{number} {_format_unit_script(token)}",
+        "consumed": end - start,
+    }
+
+
+def _format_unit_script(unit: str) -> str:
+    return "/".join(f"rm{{{_UNIT_ALIASES.get(part, part)}}}" for part in unit.split("/"))
+
+
+def _read_formula_at(text: str, start: int):
+    if not re.match(r'[A-Z]', text[start:start + 1]):
+        return None
+    if start > 0 and re.match(r'[A-Za-z0-9_]', text[start - 1]):
+        return None
+
+    scan_end = start
+    while scan_end < len(text) and re.match(r'[A-Za-z0-9()+\-^{}]', text[scan_end]):
+        scan_end += 1
+
+    for end in range(scan_end, start, -1):
+        source = text[start:end]
+        parsed = _parse_formula_source(source)
+        if not parsed:
+            continue
+        if not _should_convert_formula(text, start, end, parsed):
+            continue
+        return {**parsed, "consumed": end - start}
+
+    return None
+
+
+def _should_convert_formula(text: str, start: int, end: int, parsed: dict) -> bool:
+    next_ch = text[end] if end < len(text) else ""
+    if re.match(r'[A-Za-z0-9]', next_ch):
+        return False
+    if parsed["has_subscript"]:
+        return True
+    if _has_korean_element_name_before_paren(text, start, end):
+        return True
+    if parsed["element_count"] >= 2 and parsed["source"] in _NO_DIGIT_FORMULA_WHITELIST:
+        return True
+    return False
+
+
+def _has_korean_element_name_before_paren(text: str, start: int, end: int) -> bool:
+    if start <= 0 or text[start - 1] != "(":
+        return False
+    if end >= len(text) or text[end] != ")":
+        return False
+    before_paren = text[:start - 1].rstrip()
+    return any(before_paren.endswith(name) for name in _KOREAN_ELEMENT_NAMES)
+
+
+def _parse_formula_source(source: str):
+    charge_match = re.search(r'(?:\^\{?(\d*[+-])\}?|(\d*[+-]))$', source)
+    charge = ""
+    body = source
+    if charge_match:
+        charge = charge_match.group(1) or charge_match.group(2) or ""
+        body = source[:charge_match.start()]
+    if not body:
+        return None
+
+    parsed = _parse_formula_body(body, 0, False)
+    if not parsed or parsed["index"] != len(body) or parsed["element_count"] == 0:
+        return None
+    return {
+        "source": source,
+        "script": f"rm{{{parsed['script']}}}" + (f"^{{{charge}}}" if charge else ""),
+        "has_subscript": parsed["has_subscript"],
+        "element_count": parsed["element_count"],
+    }
+
+
+def _parse_formula_body(source: str, start: int, stop_at_paren: bool):
+    script = []
+    index = start
+    has_subscript = False
+    element_count = 0
+
+    while index < len(source):
+        ch = source[index]
+        if ch == ")":
+            break
+
+        if ch == "(":
+            inner = _parse_formula_body(source, index + 1, True)
+            if not inner or inner["index"] >= len(source) or source[inner["index"]] != ")":
+                return None
+            index = inner["index"] + 1
+            digits, index = _read_digits(source, index)
+            script.append(f"({inner['script']})")
+            if digits:
+                script.append(f"_{digits}")
+                has_subscript = True
+            has_subscript = has_subscript or inner["has_subscript"]
+            element_count += inner["element_count"]
+            continue
+
+        if not re.match(r'[A-Z]', ch):
+            return None
+
+        symbol = ch
+        if index + 1 < len(source) and re.match(r'[a-z]', source[index + 1]):
+            symbol += source[index + 1]
+            index += 1
+        if symbol not in _ELEMENT_SYMBOLS:
+            return None
+        index += 1
+
+        digits, index = _read_digits(source, index)
+        script.append(symbol)
+        if digits:
+            script.append(f"_{digits}")
+            has_subscript = True
+        element_count += 1
+
+    if stop_at_paren and (index >= len(source) or source[index] != ")"):
+        return None
+    if not script:
+        return None
+    return {
+        "script": "".join(script),
+        "index": index,
+        "has_subscript": has_subscript,
+        "element_count": element_count,
+    }
+
+
+def _read_digits(source: str, start: int):
+    index = start
+    while index < len(source) and source[index].isdigit():
+        index += 1
+    return source[start:index], index
 
 
 # ---------------------------------------------------------------------------
@@ -277,6 +511,8 @@ def _fix_permutation_combination(script: str) -> str:
         return script
 
     def _replace(m):
+        if _is_inside_brace_or_backtick(script, m.start()):
+            return m.group(0)
         base = m.group(1)    # e.g. '5' or '{10}'
         op = m.group(2)      # 'C', 'P', or 'H'
         exp = m.group(3)     # e.g. '3' or '{4}'
@@ -285,6 +521,19 @@ def _fix_permutation_combination(script: str) -> str:
         return f'{{it`{base_sub}`}}{{rm {op}}}_{{it {exp_val}}}'
 
     return _COMB_PATTERN.sub(_replace, script)
+
+
+def _is_inside_brace_or_backtick(script: str, pos: int) -> bool:
+    depth = 0
+    in_backtick = False
+    for ch in script[:pos]:
+        if ch == '`':
+            in_backtick = not in_backtick
+        elif not in_backtick and ch == '{':
+            depth += 1
+        elif not in_backtick and ch == '}' and depth > 0:
+            depth -= 1
+    return in_backtick or depth > 0
 
 
 # ---------------------------------------------------------------------------

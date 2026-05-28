@@ -9,7 +9,7 @@ import re
 import io
 from PIL import Image
 from ids import next_eq_id, next_zorder, next_inst_id
-from equation import xml_escape, make_equation_xml, lineseg_params_for_eq, make_lineseg, estimate_eq_width
+from equation import xml_escape, make_equation_xml, lineseg_params_for_eq, make_lineseg, estimate_eq_width, normalize_parts
 
 
 DEFAULT_LINE_PARAMS = (1000, 1000, 850, 600)
@@ -65,6 +65,7 @@ def _fit_condition_rect_width(rect_xml, target_width=WORKBOOK_COLUMN_WIDTH):
 
 
 def build_condition_item_content(label, parts, max_units=CONDITION_LINE_MAX_UNITS):
+    parts = normalize_parts(parts or [])
     content = ""
     max_eq = DEFAULT_LINE_PARAMS
     line_starts = [0]
@@ -93,7 +94,7 @@ def build_condition_item_content(label, parts, max_units=CONDITION_LINE_MAX_UNIT
     content += f'<hp:t>{xml_escape(label_text)}</hp:t>'
     account_text(label_text)
 
-    for part in parts or []:
+    for part in parts:
         if "eq" in part:
             eq_script = part["eq"]
             unit_width = estimate_eq_width(eq_script)

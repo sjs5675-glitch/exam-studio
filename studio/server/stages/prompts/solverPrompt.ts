@@ -42,6 +42,7 @@ eq 로 담아야 하는 것:
 - 변수·미지수: x, a, n / 함수명·함숫값: f(x), g(2)
 - 점·도형·집합·영문자: 점 A→"\\mathrm{A}", 삼각형 ABC→"\\triangle \\mathrm{ABC}", A∩B→"\\mathrm{A} \\cap \\mathrm{B}"
 - 영단어·개별 스펠링: classic→"\\mathrm{classic}", c→"\\mathrm{c}"
+- 화학식·단위식: H₂O→"\\mathrm{H}_{2}\\mathrm{O}", CO₂→"\\mathrm{CO}_{2}", 1 g/mol→"1\\,\\mathrm{g}/\\mathrm{mol}", 0.5몰→"0.5\\,\\mathrm{mol}"
 - 등식·부등식·분수·루트·조건: x+y=3, \\frac{3}{4}, \\sqrt{2}, 0 \\leq x \\leq \\pi
 
 t 로 남기는 것: 한글·조사·접속사·구두점·"이므로"·"따라서"·"의 값은" 등 순수 한국어만.
@@ -54,6 +55,7 @@ t 로 남기는 것: 한글·조사·접속사·구두점·"이므로"·"따라�
 
 - 표준 LaTeX 명령: \\frac \\sqrt \\sqrt[n]{} \\left( \\right) \\leq \\geq \\cdot \\pi \\sin \\lim 등.
 - 로마자 정자체(점·도형·단위)는 \\mathrm{...}. 순열·조합은 "{}_{n}\\mathrm{P}_{r}"·"{}_{n}\\mathrm{C}_{r}".
+- 화학식 아래첨자는 _{...}, g/mol 같은 단위식은 \\mathrm{g}/\\mathrm{mol} 형태로 쓴다.
 - 공백·단위 rm체·cdots 등 포맷 세부는 후처리가 자동 정규화함. 수학적으로 올바른 LaTeX 면 충분하다.
 
 ## 교과 범위 준수

@@ -15,7 +15,7 @@ from datetime import datetime
 import ids as _ids
 from equation import (
     xml_escape, make_equation_xml, lineseg_params_for_eq, make_lineseg,
-    _is_hwp_eq_string, estimate_eq_width,
+    _is_hwp_eq_string, estimate_eq_width, normalize_parts,
 )
 from shapes import make_condition_rect, make_ganada_table, make_empty_box, make_pic_xml, png_to_bmp_bytes
 from tables import (
@@ -74,6 +74,7 @@ def make_multiline_lineseg(line_starts, vertsize=1000, textheight=1000,
 
 
 def flow_parts_to_content_and_lines(parts, first_prefix_units=0, max_units=PROBLEM_LINE_MAX_UNITS):
+    parts = normalize_parts(parts or [])
     content = ""
     max_eq_params = DEFAULT_LINE_PARAMS
     line_starts = [0]
@@ -100,7 +101,7 @@ def flow_parts_to_content_and_lines(parts, first_prefix_units=0, max_units=PROBL
                 last_text_char = ch
                 has_body = True
 
-    for part in parts or []:
+    for part in parts:
         if "eq" in part:
             eq_script = part["eq"]
             unit_width = estimate_eq_width(eq_script)
@@ -226,6 +227,7 @@ def make_choices_xml(choices, force_compact=False):
     """Generate choice paragraphs"""
     if not choices:
         return ""
+    choices = [normalize_parts(choice or []) for choice in choices]
 
     paragraphs = []
     compact_gap = make_bogi_choice_gap() if force_compact else f'<hp:t>{make_tab3()}</hp:t>'

@@ -13,16 +13,92 @@
 
 export type Part = { t: string } | { eq: string } | { br: true };
 
+type FormulaParse = {
+  source: string;
+  script: string;
+  hasSubscript: boolean;
+  elementCount: number;
+  consumed: number;
+};
+
+const ELEMENT_SYMBOLS = new Set([
+  "H", "He", "Li", "Be", "B", "C", "N", "O", "F", "Ne",
+  "Na", "Mg", "Al", "Si", "P", "S", "Cl", "Ar",
+  "K", "Ca", "Sc", "Ti", "V", "Cr", "Mn", "Fe", "Co", "Ni",
+  "Cu", "Zn", "Ga", "Ge", "As", "Se", "Br", "Kr",
+  "Rb", "Sr", "Y", "Zr", "Nb", "Mo", "Tc", "Ru", "Rh", "Pd",
+  "Ag", "Cd", "In", "Sn", "Sb", "Te", "I", "Xe",
+  "Cs", "Ba", "La", "Ce", "Pr", "Nd", "Pm", "Sm", "Eu", "Gd",
+  "Tb", "Dy", "Ho", "Er", "Tm", "Yb", "Lu",
+  "Hf", "Ta", "W", "Re", "Os", "Ir", "Pt", "Au", "Hg",
+  "Tl", "Pb", "Bi", "Po", "At", "Rn",
+  "Fr", "Ra", "Ac", "Th", "Pa", "U", "Np", "Pu", "Am", "Cm",
+  "Bk", "Cf", "Es", "Fm", "Md", "No", "Lr",
+  "Rf", "Db", "Sg", "Bh", "Hs", "Mt", "Ds", "Rg", "Cn",
+  "Nh", "Fl", "Mc", "Lv", "Ts", "Og",
+]);
+
+const KOREAN_ELEMENT_NAMES = [
+  "수소", "헬륨", "리튬", "베릴륨", "붕소", "탄소", "질소", "산소", "플루오린", "네온",
+  "나트륨", "마그네슘", "알루미늄", "규소", "인", "황", "염소", "아르곤",
+  "칼륨", "칼슘", "철", "구리", "아연", "은", "금", "납", "아이오딘", "브로민",
+  "암모니아", "메테인", "메탄", "에탄올", "이산화 탄소", "이산화탄소", "일산화 탄소",
+  "염화 나트륨", "염화나트륨", "수산화 나트륨", "수산화나트륨",
+];
+
+const NO_DIGIT_FORMULA_WHITELIST = new Set([
+  "CO", "NO", "NO2", "SO2", "SO3", "HCl", "HBr", "HI",
+  "NaCl", "KCl", "NaOH", "KOH", "CaO", "MgO",
+]);
+
+const UNIT_ALIASES: Record<string, string> = {
+  "몰": "mol",
+};
+
+const UNIT_TOKENS = [
+  "g/mol", "kg/mol", "mg/mol", "mol/L", "mol/l",
+  "kg", "mg", "g", "mol", "몰", "mL", "L",
+  "cm", "mm", "km", "m", "s",
+];
+
 /**
  * Apply deterministic normalization rules to a parts array.
  * Idempotent. Rules implemented per
  * docs/planning/create-v4-deterministic-codification/rule-taxonomy.md.
  */
 export function normalizeParts(parts: Part[]): Part[] {
+  const chemistrySplit = splitTextChemistry(parts);
   // R-01: split equation chains first (structural transform)
-  const split = splitEquationChains(parts);
+  const split = splitEquationChains(chemistrySplit);
   // R-02 ~ R-10: per-part transforms
   return split.map(normalizePart);
+}
+
+export function normalizePartTree<T>(node: T): T {
+  if (Array.isArray(node)) {
+    if (node.every(isPartLike)) {
+      return normalizeParts(node as Part[]) as unknown as T;
+    }
+    return node.map((item) => normalizePartTree(item)) as unknown as T;
+  }
+
+  if (node !== null && typeof node === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+      out[key] = normalizePartTree(value);
+    }
+    return out as T;
+  }
+
+  return node;
+}
+
+function isPartLike(value: unknown): value is Part {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const obj = value as Record<string, unknown>;
+  return typeof obj.t === "string" || typeof obj.eq === "string" || obj.br === true;
 }
 
 function normalizePart(part: Part): Part {
@@ -37,12 +113,243 @@ function normalizePart(part: Part): Part {
     s = leadingUnderscoreToLsub(s);      // R-07 (2-pass: applied after R-08)
     s = enforceRmUnits(s);               // R-09 (eq-side unit enforcement)
     s = operatorSpaces(s);               // R-10
-    return { eq: s };
+    return { ...part, eq: s };
   }
   if ("t" in part) {
-    return { t: enforceRmUnits(part.t) }; // R-09 (text-side)
+    return { ...part, t: enforceRmUnits(part.t) }; // R-09 (text-side)
   }
   return part;
+}
+
+function splitTextChemistry(parts: Part[]): Part[] {
+  const result: Part[] = [];
+  for (const part of parts || []) {
+    if ("t" in part) {
+      result.push(...splitChemistryText(part.t));
+    } else {
+      result.push(part);
+    }
+  }
+  return result;
+}
+
+function splitChemistryText(text: string): Part[] {
+  const result: Part[] = [];
+  let buffer = "";
+  let i = 0;
+
+  const flush = () => {
+    if (buffer) {
+      result.push({ t: buffer });
+      buffer = "";
+    }
+  };
+
+  while (i < text.length) {
+    const unit = readQuantityUnitAt(text, i);
+    if (unit) {
+      flush();
+      result.push({ eq: unit.script });
+      i += unit.consumed;
+      continue;
+    }
+
+    const formula = readFormulaAt(text, i);
+    if (formula) {
+      flush();
+      result.push({ eq: formula.script });
+      i += formula.consumed;
+      continue;
+    }
+
+    buffer += text[i];
+    i++;
+  }
+
+  flush();
+  return result;
+}
+
+function readQuantityUnitAt(text: string, start: number): { script: string; consumed: number } | null {
+  const slice = text.slice(start);
+  const match = slice.match(/^(\d+(?:\.\d+)?)(\s*)([A-Za-z/가-힣]+)/);
+  if (!match) {
+    return null;
+  }
+
+  const [, number, , rawUnitChunk] = match;
+  const token = UNIT_TOKENS.find((candidate) => rawUnitChunk.startsWith(candidate));
+  if (!token) {
+    return null;
+  }
+
+  const end = start + number.length + match[2].length + token.length;
+  const next = text[end] ?? "";
+  if (/[A-Za-z]/.test(next)) {
+    return null;
+  }
+
+  return {
+    script: `${number} ${formatUnitScript(token)}`,
+    consumed: end - start,
+  };
+}
+
+function formatUnitScript(unit: string): string {
+  return unit
+    .split("/")
+    .map((part) => `rm{${UNIT_ALIASES[part] ?? part}}`)
+    .join("/");
+}
+
+function readFormulaAt(text: string, start: number): FormulaParse | null {
+  if (!/[A-Z]/.test(text[start] ?? "")) {
+    return null;
+  }
+  if (start > 0 && /[A-Za-z0-9_]/.test(text[start - 1])) {
+    return null;
+  }
+
+  let scanEnd = start;
+  while (scanEnd < text.length && /[A-Za-z0-9()+\-^{}]/.test(text[scanEnd])) {
+    scanEnd++;
+  }
+
+  for (let end = scanEnd; end > start; end--) {
+    const source = text.slice(start, end);
+    const parsed = parseFormulaSource(source);
+    if (!parsed) {
+      continue;
+    }
+    if (!shouldConvertFormula(text, start, end, parsed)) {
+      continue;
+    }
+    return { ...parsed, consumed: end - start };
+  }
+
+  return null;
+}
+
+function shouldConvertFormula(text: string, start: number, end: number, parsed: Omit<FormulaParse, "consumed">): boolean {
+  const next = text[end] ?? "";
+  if (/[A-Za-z0-9]/.test(next)) {
+    return false;
+  }
+  if (parsed.hasSubscript) {
+    return true;
+  }
+  if (hasKoreanElementNameBeforeParen(text, start, end)) {
+    return true;
+  }
+  if (parsed.elementCount >= 2 && NO_DIGIT_FORMULA_WHITELIST.has(parsed.source)) {
+    return true;
+  }
+  return false;
+}
+
+function hasKoreanElementNameBeforeParen(text: string, start: number, end: number): boolean {
+  if (text[start - 1] !== "(" || text[end] !== ")") {
+    return false;
+  }
+  const beforeParen = text.slice(0, start - 1).trimEnd();
+  return KOREAN_ELEMENT_NAMES.some((name) => beforeParen.endsWith(name));
+}
+
+function parseFormulaSource(source: string): Omit<FormulaParse, "consumed"> | null {
+  const chargeMatch = source.match(/(?:\^\{?(\d*[+-])\}?|(\d*[+-]))$/);
+  const charge = chargeMatch ? (chargeMatch[1] ?? chargeMatch[2]) : "";
+  const body = charge ? source.slice(0, source.length - chargeMatch![0].length) : source;
+  if (!body) {
+    return null;
+  }
+
+  const parsed = parseFormulaBody(body, 0, false);
+  if (!parsed || parsed.index !== body.length || parsed.elementCount === 0) {
+    return null;
+  }
+
+  return {
+    source,
+    script: `rm{${parsed.script}}${charge ? `^{${charge}}` : ""}`,
+    hasSubscript: parsed.hasSubscript,
+    elementCount: parsed.elementCount,
+  };
+}
+
+function parseFormulaBody(
+  source: string,
+  start: number,
+  stopAtParen: boolean
+): { script: string; index: number; hasSubscript: boolean; elementCount: number } | null {
+  let script = "";
+  let index = start;
+  let hasSubscript = false;
+  let elementCount = 0;
+
+  while (index < source.length) {
+    const ch = source[index];
+    if (ch === ")") {
+      break;
+    }
+
+    if (ch === "(") {
+      const inner = parseFormulaBody(source, index + 1, true);
+      if (!inner || source[inner.index] !== ")") {
+        return null;
+      }
+      index = inner.index + 1;
+      const digits = readDigits(source, index);
+      script += `(${inner.script})`;
+      if (digits.value) {
+        script += `_${digits.value}`;
+        hasSubscript = true;
+      }
+      hasSubscript = hasSubscript || inner.hasSubscript;
+      elementCount += inner.elementCount;
+      index = digits.index;
+      continue;
+    }
+
+    if (!/[A-Z]/.test(ch)) {
+      return null;
+    }
+
+    let symbol = ch;
+    if (index + 1 < source.length && /[a-z]/.test(source[index + 1])) {
+      symbol += source[index + 1];
+      index++;
+    }
+    if (!ELEMENT_SYMBOLS.has(symbol)) {
+      return null;
+    }
+    index++;
+
+    const digits = readDigits(source, index);
+    script += symbol;
+    if (digits.value) {
+      script += `_${digits.value}`;
+      hasSubscript = true;
+    }
+    elementCount++;
+    index = digits.index;
+  }
+
+  if (stopAtParen && source[index] !== ")") {
+    return null;
+  }
+  if (!script) {
+    return null;
+  }
+
+  return { script, index, hasSubscript, elementCount };
+}
+
+function readDigits(source: string, start: number): { value: string; index: number } {
+  let index = start;
+  while (index < source.length && /\d/.test(source[index])) {
+    index++;
+  }
+  return { value: source.slice(start, index), index };
 }
 
 // ─── R-01: 통수식 split (top-level = 기반 분리) ───────────────────────────────
@@ -293,7 +600,17 @@ function fixPermutationCombination(s: string): string {
   // Pattern: _ followed by optional {}, a letter/number, then C/P/H, then _ followed by optional {}, a letter/number
   const pattern = /_((\{[^}]+\})|([A-Za-z0-9]+))\s*([CPH])\s*_((\{[^}]+\})|([A-Za-z0-9]+))/g;
 
-  return s.replace(pattern, (_match, _nGroup, nBraced, nBare, op, _rGroup, rBraced, rBare) => {
+  return s.replace(pattern, (...args) => {
+    const match = args[0] as string;
+    const nBraced = args[2] as string | undefined;
+    const nBare = args[3] as string | undefined;
+    const op = args[4] as string;
+    const rBraced = args[6] as string | undefined;
+    const rBare = args[7] as string | undefined;
+    const offset = args[8] as number;
+    if (isInsideBraceOrBacktick(s, offset)) {
+      return match;
+    }
     // Format: {it`_n`}{rm C}_{it r}
     // For braced n: _{10} → `_{10}` inside it
     // For bare n: _5 → `_5` inside it
@@ -303,6 +620,22 @@ function fixPermutationCombination(s: string): string {
 
     return `{it\`${nContent}\`}{rm ${op}}_{it ${rContent}}`;
   });
+}
+
+function isInsideBraceOrBacktick(script: string, pos: number): boolean {
+  let depth = 0;
+  let inBacktick = false;
+  for (let i = 0; i < pos; i++) {
+    const c = script[i];
+    if (c === "`") {
+      inBacktick = !inBacktick;
+    } else if (!inBacktick && c === "{") {
+      depth++;
+    } else if (!inBacktick && c === "}" && depth > 0) {
+      depth--;
+    }
+  }
+  return inBacktick || depth > 0;
 }
 
 // ─── R-09: rm체 단위 enforcement ─────────────────────────────────────────────
