@@ -4,6 +4,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import JSZip from "jszip";
 import type { CropBox, PdfFlip, PdfRotation } from "@/lib/cropper/types";
 import { autoNumber, normalizePdfRotation, normalizedBboxToCropBox } from "@/lib/cropper/coords";
+import type { ImageProviderId } from "@/lib/ai/settings";
 import { PdfPageCanvas } from "./PdfPageCanvas";
 
 // ─── types ────────────────────────────────────────────────────────────────────
@@ -15,6 +16,10 @@ interface PdfMeta {
 }
 
 type CropItem = { number: number; kind?: "regular" | "essay"; blob: Blob };
+const AUTO_CROP_PROVIDER_LABEL: Record<ImageProviderId, string> = {
+  gemini: "Gemini API",
+  "codex-cli": "Codex",
+};
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -105,6 +110,8 @@ interface CropperWorkspaceProps {
   onExtract?: (items: CropItem[]) => Promise<void>;
   /** Auto-run 자동 분할 after PDF upload. Default false. */
   autoSplitOnUpload?: boolean;
+  /** Provider used when autoSplitOnUpload triggers. Manual buttons choose their own provider. */
+  autoSplitProvider?: ImageProviderId;
   onPdfSelected?: (fileName: string) => void;
 }
 
@@ -113,7 +120,7 @@ export interface CropperWorkspaceRef {
 }
 
 export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspaceProps>(
-  ({ onExtract, autoSplitOnUpload = false, onPdfSelected }, ref) => {
+  ({ onExtract, autoSplitOnUpload = false, autoSplitProvider = "gemini", onPdfSelected }, ref) => {
     // Upload state
     const [pdfPath, setPdfPath] = useState<string | null>(null);
     const [pdfMeta, setPdfMeta] = useState<PdfMeta | null>(null);
@@ -141,12 +148,15 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
   const [selectedBoxId, setSelectedBoxId] = useState<string | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
 
-  const [autoCropping, setAutoCropping] = useState(false);
+  const [autoCroppingProvider, setAutoCroppingProvider] = useState<ImageProviderId | null>(null);
   const [autoCropError, setAutoCropError] = useState<string | null>(null);
 
   // Gemini 키가 확실히 없을 때만 자동 분할을 막는다 (null=확인 전/실패 → 막지 않음).
   const [geminiConfigured, setGeminiConfigured] = useState<boolean | null>(null);
   const geminiMissing = geminiConfigured === false;
+  const [codexReady, setCodexReady] = useState<boolean | null>(null);
+  const codexMissing = codexReady === false;
+  const autoCropping = autoCroppingProvider !== null;
 
   useEffect(() => {
     let cancelled = false;
@@ -157,6 +167,14 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
       })
       .catch(() => {
         if (!cancelled) setGeminiConfigured(null);
+      });
+    fetch("/api/status")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { codexCli?: { available?: boolean; authenticated?: boolean } } | null) => {
+        if (!cancelled) setCodexReady(Boolean(data?.codexCli?.available && data?.codexCli?.authenticated));
+      })
+      .catch(() => {
+        if (!cancelled) setCodexReady(null);
       });
     return () => {
       cancelled = true;
@@ -409,28 +427,39 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
     setSelectedBoxId(null);
   }
 
-  async function handleAutoCrop() {
+  function getAutoCropProviderError(provider: ImageProviderId): string | null {
+    if (provider === "gemini" && geminiMissing) {
+      return "Gemini API 키가 설정되지 않았습니다. 설정에서 입력 후 다시 시도하세요.";
+    }
+    if (provider === "codex-cli" && codexMissing) {
+      return "Codex CLI가 준비되지 않았습니다. 설치와 로그인을 확인한 뒤 다시 시도하세요.";
+    }
+    return null;
+  }
+
+  async function handleAutoCrop(provider: ImageProviderId) {
     if (!pdfPath || !pdfMeta) return;
-    if (geminiMissing) {
-      setAutoCropError("Gemini API 키가 설정되지 않았습니다. 설정에서 입력 후 다시 시도하세요.");
+    const providerError = getAutoCropProviderError(provider);
+    if (providerError) {
+      setAutoCropError(providerError);
       return;
     }
 
     if (boxes.length > 0) {
       const ok = window.confirm(
-        `기존 박스 ${boxes.length}개를 모두 비우고 자동 분할을 진행하시겠습니까?`
+        `기존 박스 ${boxes.length}개를 모두 비우고 ${AUTO_CROP_PROVIDER_LABEL[provider]} 자동 분할을 진행하시겠습니까?`
       );
       if (!ok) return;
     }
 
-    setAutoCropping(true);
+    setAutoCroppingProvider(provider);
     setAutoCropError(null);
 
     try {
       const res = await fetch("/api/auto-crop", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pdfPath, rotation, flip }),
+        body: JSON.stringify({ pdfPath, rotation, flip, provider }),
       });
 
       if (!res.ok) {
@@ -477,7 +506,7 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
     } catch (err) {
       setAutoCropError(err instanceof Error ? err.message : "자동 분할 실패");
     } finally {
-      setAutoCropping(false);
+      setAutoCroppingProvider(null);
     }
   }
 
@@ -485,7 +514,7 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
     if (!pendingAutoSplitRef.current) return;
     if (!pdfPath || !pdfMeta) return;
     pendingAutoSplitRef.current = false;
-    queueMicrotask(() => void handleAutoCrop());
+    queueMicrotask(() => void handleAutoCrop(autoSplitProvider));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pdfPath, pdfMeta]);
 
@@ -662,16 +691,28 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
           </div>
         )}
 
-        {/* Auto-crop button */}
+        {/* Auto-crop buttons */}
         {pdfMeta && (
-          <button
-            onClick={handleAutoCrop}
-            disabled={autoCropping || geminiMissing}
-            title={geminiMissing ? "Gemini API 키가 필요합니다 — 설정에서 입력" : undefined}
-            className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {autoCropping ? "자동 분할 중…" : "자동 분할"}
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => void handleAutoCrop("gemini")}
+              disabled={autoCropping || geminiMissing}
+              title={geminiMissing ? "Gemini API 키가 필요합니다 — 설정에서 입력" : undefined}
+              className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {autoCroppingProvider === "gemini" ? "Gemini 분할 중…" : "자동분할(Gemini API)"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleAutoCrop("codex-cli")}
+              disabled={autoCropping || codexMissing}
+              title={codexMissing ? "Codex CLI 설치와 로그인이 필요합니다 — 설정에서 확인" : undefined}
+              className="px-3 py-1.5 rounded bg-slate-700 text-white text-sm font-medium hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {autoCroppingProvider === "codex-cli" ? "Codex 분할 중…" : "자동분할(Codex)"}
+            </button>
+          </div>
         )}
 
         <div className="flex-1" />

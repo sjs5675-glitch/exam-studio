@@ -5,16 +5,33 @@ import path from "path";
 import { readRuntimeEnv } from "@/lib/server/runtimeEnv";
 import { normalizePdfRotation } from "@/lib/cropper/coords";
 import { getDataRoot } from "@/lib/server/paths";
+import { isImageProviderId, type ImageProviderId } from "@/lib/ai/settings";
 
-export const maxDuration = 180;
+export const maxDuration = 900;
 
 const execFileAsync = promisify(execFile);
 const BASE_DIR = getDataRoot();
 
+const SCRIPT_BY_PROVIDER: Record<ImageProviderId, string> = {
+  gemini: "gemini_crop.py",
+  "codex-cli": "codex_crop.py",
+};
+
+const TIMEOUT_BY_PROVIDER: Record<ImageProviderId, number> = {
+  gemini: 180000,
+  "codex-cli": 900000,
+};
+
 export async function POST(req: NextRequest) {
+  let provider: ImageProviderId = "gemini";
   try {
     const body = await req.json();
-    const { pdfPath, rotation: rawRotation = 0, flip = false } = body;
+    const {
+      pdfPath,
+      rotation: rawRotation = 0,
+      flip = false,
+      provider: rawProvider = "gemini",
+    } = body;
 
     if (!pdfPath || typeof pdfPath !== "string") {
       return NextResponse.json(
@@ -36,9 +53,16 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
+    if (!isImageProviderId(rawProvider)) {
+      return NextResponse.json(
+        { error: "provider must be gemini or codex-cli" },
+        { status: 400 },
+      );
+    }
+    provider = rawProvider;
     const rotation = normalizePdfRotation(rotationValue);
     const fullPath = path.join(BASE_DIR, pdfPath);
-    const scriptPath = path.join(BASE_DIR, "workspaces", "crop", "gemini_crop.py");
+    const scriptPath = path.join(BASE_DIR, "workspaces", "crop", SCRIPT_BY_PROVIDER[provider]);
 
     const pythonCmd = process.platform === "win32" ? "python" : "python3";
 
@@ -49,7 +73,7 @@ export async function POST(req: NextRequest) {
       pythonCmd,
       pythonArgs,
       {
-        timeout: 180000,
+        timeout: TIMEOUT_BY_PROVIDER[provider],
         maxBuffer: 16 * 1024 * 1024,
         env: {
           ...process.env,
@@ -66,7 +90,7 @@ export async function POST(req: NextRequest) {
     } catch {
       const hint = stderr ? stderr.slice(0, 300) : stdout.slice(0, 300);
       return NextResponse.json(
-        { error: "Failed to parse gemini_crop.py output", detail: hint },
+        { error: `Failed to parse ${SCRIPT_BY_PROVIDER[provider]} output`, detail: hint },
         { status: 500 },
       );
     }
@@ -85,7 +109,7 @@ export async function POST(req: NextRequest) {
         ? execErr.stderr.slice(0, 500)
         : (execErr.message ?? "Unknown error");
       return NextResponse.json(
-        { error: "gemini_crop.py execution failed", detail },
+        { error: `${SCRIPT_BY_PROVIDER[provider]} execution failed`, detail },
         { status: 500 },
       );
     }

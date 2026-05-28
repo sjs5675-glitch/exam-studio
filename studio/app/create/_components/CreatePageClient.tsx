@@ -37,17 +37,20 @@ import {
   readAISettings,
   writeAISettings,
   type AISettings,
+  type ImageProviderId,
 } from "@/lib/ai/settings";
 import type { AIProviderId } from "@/lib/ai";
 import { NoActiveSessionPlaceholder } from "./NoActiveSessionPlaceholder";
 import {
   AUTO_SPLIT_LS_KEY,
+  AUTO_SPLIT_PROVIDER_LS_KEY,
   META_LS_KEY,
   PROVIDER_LABEL,
   STAGE_LABEL,
   createDefaultMeta,
   createYearOptions,
   loadStoredAutoSplitEnabled,
+  loadStoredAutoSplitProvider,
   loadStoredMeta,
   preloadQuestionResultsFromCache,
   type BuildStatus,
@@ -150,6 +153,7 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
   }, [v3Meta, startJob, setV3Meta]);
 
   const [autoSplitEnabled, setAutoSplitEnabled] = useState(false);
+  const [autoSplitProvider, setAutoSplitProvider] = useState<ImageProviderId>("gemini");
   const [geminiConfigured, setGeminiConfigured] = useState<boolean | null>(null);
   const [codexReady, setCodexReady] = useState<boolean | null>(null);
   const [aiSettings, setAiSettings] = useState<AISettings>(DEFAULT_AI_SETTINGS);
@@ -158,6 +162,7 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
   useEffect(() => {
     queueMicrotask(() => {
       setAutoSplitEnabled(loadStoredAutoSplitEnabled());
+      setAutoSplitProvider(loadStoredAutoSplitProvider());
       setAiSettings(readAISettings());
       setMeta(loadStoredMeta(defaultMeta));
     });
@@ -192,7 +197,10 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
 
   // Gemini 키가 확실히 없을 때만 자동 분할을 막는다 (null=확인 전/실패 → 막지 않음).
   const geminiMissing = geminiConfigured === false;
-  const autoSplitActive = autoSplitEnabled && !geminiMissing;
+  const autoSplitProviderMissing = autoSplitProvider === "codex-cli"
+    ? codexReady === false
+    : geminiMissing;
+  const autoSplitActive = autoSplitEnabled && !autoSplitProviderMissing;
 
   // 선택된 손글씨 제거 provider가 확실히 미가용일 때만 이미지 정리를 막는다 (null=확인 전/실패 → 막지 않음).
   const cleaningProviderMissing = aiSettings.imageCleaningProvider === "codex-cli"
@@ -216,6 +224,13 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
     setAutoSplitEnabled(next);
     try {
       localStorage.setItem(AUTO_SPLIT_LS_KEY, String(next));
+    } catch {}
+  }
+
+  function handleAutoSplitProviderChange(provider: ImageProviderId) {
+    setAutoSplitProvider(provider);
+    try {
+      localStorage.setItem(AUTO_SPLIT_PROVIDER_LS_KEY, provider);
     } catch {}
   }
 
@@ -857,26 +872,54 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
             <label
               className={cn(
                 "flex items-center gap-2 group",
-                geminiMissing ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+                autoSplitProviderMissing ? "cursor-not-allowed opacity-60" : "cursor-pointer"
               )}
             >
               <input
                 type="checkbox"
                 checked={autoSplitActive}
                 onChange={handleAutoSplitToggle}
-                disabled={geminiMissing}
+                disabled={autoSplitProviderMissing}
                 className="accent-primary w-3.5 h-3.5"
               />
               <span className="text-[11px] text-muted-foreground group-hover:text-foreground transition-colors font-bold tracking-tight">
-                자동 분할 <span className="font-normal opacity-70">(Gemini API 사용)</span>
+                자동 분할 <span className="font-normal opacity-70">({autoSplitProvider === "codex-cli" ? "Codex" : "Gemini API"} 사용)</span>
               </span>
             </label>
-            {geminiMissing && (
+            <div className="ml-[1.375rem] flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => handleAutoSplitProviderChange("gemini")}
+                className={cn(
+                  "px-2 py-0.5 rounded border text-[10px] font-bold transition-colors",
+                  autoSplitProvider === "gemini"
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-background text-muted-foreground hover:text-foreground"
+                )}
+              >
+                Gemini API
+              </button>
+              <button
+                type="button"
+                onClick={() => handleAutoSplitProviderChange("codex-cli")}
+                className={cn(
+                  "px-2 py-0.5 rounded border text-[10px] font-bold transition-colors",
+                  autoSplitProvider === "codex-cli"
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-background text-muted-foreground hover:text-foreground"
+                )}
+              >
+                Codex
+              </button>
+            </div>
+            {autoSplitProviderMissing && (
               <a
                 href="/settings"
                 className="ml-[1.375rem] text-[10px] text-destructive/80 hover:text-destructive hover:underline"
               >
-                Gemini API 키가 필요합니다 — 설정에서 입력
+                {autoSplitProvider === "codex-cli"
+                  ? "Codex CLI 설치와 로그인이 필요합니다 — 설정에서 확인"
+                  : "Gemini API 키가 필요합니다 — 설정에서 입력"}
               </a>
             )}
             <label
@@ -1103,6 +1146,7 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
         onClose={() => setCropperOpen(false)}
         onExtract={handleExtract}
         autoSplitOnUpload={autoSplitActive}
+        autoSplitProvider={autoSplitProvider}
         onPdfSelected={handlePdfSelected}
       />
 

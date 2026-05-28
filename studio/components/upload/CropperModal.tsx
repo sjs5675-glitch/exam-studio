@@ -3,17 +3,19 @@
 import { useEffect, forwardRef } from "react";
 import { Badge } from "@/components/ui/badge";
 import { CropperWorkspace, type CropperWorkspaceRef } from "@/components/cropper/CropperWorkspace";
+import type { ImageProviderId } from "@/lib/ai/settings";
 
 interface CropperModalProps {
   open: boolean;
   onClose: () => void;
   onExtract: (items: { number: number; kind?: "regular" | "essay"; blob: Blob }[]) => Promise<void>;
   autoSplitOnUpload: boolean;
+  autoSplitProvider: ImageProviderId;
   onPdfSelected: (path: string) => void;
 }
 
 export const CropperModal = forwardRef<CropperWorkspaceRef, CropperModalProps>(
-  function CropperModal({ open, onClose, onExtract, autoSplitOnUpload, onPdfSelected }, ref) {
+  function CropperModal({ open, onClose, onExtract, autoSplitOnUpload, autoSplitProvider, onPdfSelected }, ref) {
     useEffect(() => {
       if (!open) return;
       const onKey = (e: KeyboardEvent) => {
@@ -62,6 +64,7 @@ export const CropperModal = forwardRef<CropperWorkspaceRef, CropperModalProps>(
                 onClose();
               }}
               autoSplitOnUpload={autoSplitOnUpload}
+              autoSplitProvider={autoSplitProvider}
               onPdfSelected={onPdfSelected}
             />
           </div>

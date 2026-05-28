@@ -2,6 +2,7 @@ import type { MetaValue } from "@/components/upload/MetaForm";
 import { DEFAULT_EXAM_META } from "@/lib/exam/meta";
 import { useJobStore } from "@/lib/store";
 import type { AIProviderId, AIStageKey } from "@/lib/ai";
+import type { ImageProviderId } from "@/lib/ai/settings";
 
 export type QuestionFigureCacheState = {
   status: "ok" | "failed" | "boundary_uncertain";
@@ -33,6 +34,7 @@ export type BuildStatus = {
 };
 
 export const AUTO_SPLIT_LS_KEY = "cropper.auto-split-on-upload";
+export const AUTO_SPLIT_PROVIDER_LS_KEY = "cropper.auto-split-provider";
 export const META_LS_KEY = "create-v4.meta-form";
 
 export function createDefaultMeta(currentYear: number): MetaValue {
@@ -67,6 +69,17 @@ export function loadStoredAutoSplitEnabled(): boolean {
     return localStorage.getItem(AUTO_SPLIT_LS_KEY) === "true";
   } catch {
     return false;
+  }
+}
+
+export function loadStoredAutoSplitProvider(): ImageProviderId {
+  if (typeof window === "undefined") return "gemini";
+  try {
+    return localStorage.getItem(AUTO_SPLIT_PROVIDER_LS_KEY) === "codex-cli"
+      ? "codex-cli"
+      : "gemini";
+  } catch {
+    return "gemini";
   }
 }
 
