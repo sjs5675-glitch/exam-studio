@@ -789,25 +789,25 @@ def _estimate_compact_rm_width(script):
         ch = visible[i]
         if ch == '_':
             sub, next_i = _read_subscript_payload(visible, i + 1)
-            total += max(len(sub), 1) * 190
+            total += max(len(sub), 1) * 260
             i = next_i
             continue
         if ch in '{}':
             i += 1
             continue
         if ch.isspace():
-            total += 120
-        elif ch == '~':
             total += 180
+        elif ch == '~':
+            total += 240
         elif ch in '/().,+-':
-            total += 230
+            total += 300
         elif ch.isdigit():
-            total += 260
+            total += 310
         else:
-            total += 320
+            total += 430
         i += 1
 
-    return min(max(int(total * 1.12) + 220, 650), 30000)
+    return min(max(int(total * 1.18) + 420, 800), 30000)
 
 
 def _compact_rm_visible_script(script):
