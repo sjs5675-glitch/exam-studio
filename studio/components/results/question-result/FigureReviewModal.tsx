@@ -165,8 +165,13 @@ export function FigureReviewModal({
               <div className="grid grid-cols-2 gap-4">
                 {figureProblems.map((q) => {
                   const v = encodeURIComponent(q.updatedAt ?? "");
+                  const figureFinalImage = (q.figure as Record<string, unknown> | undefined)?.finalImage;
+                  const figureImage =
+                    q.figure?.image ??
+                    (typeof figureFinalImage === "string" ? figureFinalImage : undefined) ??
+                    `outputs/images/prob${q.number}_final.png`;
                   const finalSrc = `/api/file?path=${encodeURIComponent(
-                    `outputs/images/prob${q.number}_final.png`
+                    figureImage
                   )}&v=${v}`;
                   const refSrc = `/api/file?path=${encodeURIComponent(
                     `inputs/시험지 제작/.v3cache/prob${q.number}_ref.jpg`
@@ -225,6 +230,13 @@ export function FigureReviewModal({
                                 onLoad={() =>
                                   setLoadedSet((prev) => new Set([...prev, q.number]))
                                 }
+                                onError={(e) => {
+                                  const img = e.currentTarget;
+                                  if (img.dataset.fallback === "ref") return;
+                                  img.dataset.fallback = "ref";
+                                  img.src = refSrc;
+                                  setLoadedSet((prev) => new Set([...prev, q.number]));
+                                }}
                               />
                               {isRegenerating && (
                                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded bg-white/40 text-muted-foreground">

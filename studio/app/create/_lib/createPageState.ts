@@ -25,7 +25,7 @@ export type ExistingImages = {
 
 export type BuildStatus = {
   pending: boolean;
-  status?: "running" | "retrying" | "fallback" | "success" | "failed";
+  status?: "running" | "retrying" | "fallback" | "success" | "completed" | "failed";
   hwpx_path?: string;
   error?: string;
   retried?: { problem: number; agent: string }[];

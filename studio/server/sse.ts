@@ -545,6 +545,14 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       send({ event: "file", data: { type: "hwpx", name: path.basename(outputFile), path: outputFile } });
     }
 
+    if (
+      finalStatus === "done" &&
+      !outputFile &&
+      /(failed|failure|error|실패|오류)/i.test(resultSummary)
+    ) {
+      finalStatus = "failed";
+    }
+
     try {
       await jobStore.write({
         ...jobData,

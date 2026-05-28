@@ -19,7 +19,8 @@ export async function GET(
       return NextResponse.json({ error: "Job not found" }, { status: 404 });
     }
 
-    const job = JSON.parse(await readFile(jobFile, "utf-8"));
+    const jobRaw = await readFile(jobFile, "utf-8");
+    const job = JSON.parse(jobRaw.replace(/^\uFEFF/, ""));
     const outputPath = job.outputFile;
 
     if (!outputPath) {

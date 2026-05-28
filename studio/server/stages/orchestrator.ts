@@ -1159,6 +1159,7 @@ async function emitFigureQuestionEvents(
     // 구분은 payload 내부 status 필드로 전달하여 클라이언트 핸들러 필터에 막히지 않도록 한다.
     const payload: Record<string, unknown> = {
       status: q?.status ?? "ok",
+      ...(q?.finalImage ? { image: q.finalImage } : {}),
       ...(q?.finalImage ? { finalImage: q.finalImage } : {}),
       ...(q?.error ? { error: q.error } : {}),
     };

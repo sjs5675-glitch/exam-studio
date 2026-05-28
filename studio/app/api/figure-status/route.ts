@@ -27,11 +27,25 @@ export async function GET() {
         .map((f) => `outputs/images/${f}`);
     }
 
+    const questions = status.questions && typeof status.questions === "object" ? status.questions as Record<string, { status?: string }> : {};
+    const success = status.success ?? Object.entries(questions)
+      .filter(([, q]) => q.status === "ok" || q.status === "boundary_uncertain")
+      .map(([n]) => Number(n))
+      .filter((n) => Number.isFinite(n))
+      .sort((a, b) => a - b);
+    const failed = status.failed ?? Object.entries(questions)
+      .filter(([, q]) => q.status === "failed")
+      .map(([n]) => Number(n))
+      .filter((n) => Number.isFinite(n))
+      .sort((a, b) => a - b);
+    const done = status.completed === true || status.status === "done";
+
     return NextResponse.json({
       pending: false,
-      done: status.completed === true,
-      success: status.success ?? [],
-      failed: status.failed ?? [],
+      done,
+      status: status.status,
+      success,
+      failed,
       images,
     });
   } catch {

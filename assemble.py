@@ -15,7 +15,7 @@ from datetime import datetime
 import ids as _ids
 from equation import (
     xml_escape, make_equation_xml, lineseg_params_for_eq, make_lineseg,
-    parts_to_run_content, _is_hwp_eq_string,
+    _is_hwp_eq_string, estimate_eq_width,
 )
 from shapes import make_condition_rect, make_ganada_table, make_empty_box, make_pic_xml, png_to_bmp_bytes
 from tables import (
@@ -31,6 +31,156 @@ DEFAULT_BASE = os.path.join(SCRIPT_DIR, "resources", "hwpx_base")
 
 # === Choice number symbols ===
 CHOICE_SYMBOLS = ["①", "②", "③", "④", "⑤"]
+
+DEFAULT_LINE_PARAMS = (1000, 1000, 850, 600)
+PROBLEM_LINE_MAX_UNITS = 26000
+CHOICE_LINE_MAX_UNITS = 25000
+PROBLEM_NUMBER_UNITS = 1900
+TAB_UNITS = 2000
+
+
+def estimate_text_units(text):
+    total = 0
+    for ch in str(text or ""):
+        code = ord(ch)
+        if ch.isspace():
+            total += 260
+        elif (
+            0xAC00 <= code <= 0xD7AF or
+            0x3130 <= code <= 0x318F or
+            0x4E00 <= code <= 0x9FFF or
+            0x3040 <= code <= 0x30FF
+        ):
+            total += 880
+        elif ch in ",.;:!?()[]{}<>/\\-+*=~'\"":
+            total += 340
+        else:
+            total += 470
+    return total
+
+
+def split_text_by_units(text, max_units):
+    text = str(text or "")
+    if not text:
+        return []
+
+    chunks = []
+    current = ""
+    current_units = 0
+
+    def flush():
+        nonlocal current, current_units
+        if current:
+            chunks.append(current)
+            current = ""
+            current_units = 0
+
+    for token in re.findall(r"\S+\s*", text):
+        token_units = estimate_text_units(token)
+        if token_units <= max_units:
+            if current and current_units + token_units > max_units:
+                flush()
+            current += token
+            current_units += token_units
+            continue
+
+        flush()
+        hard = ""
+        hard_units = 0
+        for ch in token:
+            ch_units = estimate_text_units(ch)
+            if hard and hard_units + ch_units > max_units:
+                chunks.append(hard)
+                hard = ""
+                hard_units = 0
+            hard += ch
+            hard_units += ch_units
+        if hard:
+            chunks.append(hard)
+
+    flush()
+    return chunks
+
+
+def make_wrapped_part_paragraphs(
+    parts,
+    first_prefix="",
+    first_prefix_units=0,
+    continuation_prefix="",
+    continuation_units=0,
+    max_units=PROBLEM_LINE_MAX_UNITS,
+    para_id="2147483648",
+    paraPrIDRef="0",
+    charPrIDRef="1",
+):
+    paragraphs = []
+    line_content = first_prefix
+    line_units = first_prefix_units
+    line_params = DEFAULT_LINE_PARAMS
+    has_body = False
+
+    def append_line():
+        nonlocal line_content, line_units, line_params, has_body
+        if line_content or not paragraphs:
+            paragraphs.append(make_paragraph(
+                content=line_content,
+                para_id=para_id,
+                paraPrIDRef=paraPrIDRef,
+                charPrIDRef=charPrIDRef,
+                vertsize=line_params[0],
+                textheight=line_params[1],
+                baseline=line_params[2],
+                spacing=line_params[3],
+            ))
+        line_content = continuation_prefix
+        line_units = continuation_units
+        line_params = DEFAULT_LINE_PARAMS
+        has_body = False
+
+    for part in parts or []:
+        if "eq" in part:
+            eq_script = part["eq"]
+            unit_width = estimate_eq_width(eq_script)
+            if part.get("indent"):
+                unit_width += TAB_UNITS
+            if has_body and line_units + unit_width > max_units:
+                append_line()
+            if part.get("indent"):
+                line_content += '<hp:tab width="2000" leader="0" type="1"/>'
+                line_units += TAB_UNITS
+            line_content += make_equation_xml(eq_script)
+            line_units += estimate_eq_width(eq_script)
+            params = lineseg_params_for_eq(eq_script)
+            if params[0] > line_params[0]:
+                line_params = params
+            has_body = True
+        elif "t" in part:
+            text = part["t"].replace("\n", " ")
+            for chunk in split_text_by_units(text, max_units):
+                chunk_units = estimate_text_units(chunk)
+                if has_body and line_units + chunk_units > max_units:
+                    append_line()
+                    chunk = chunk.lstrip()
+                    chunk_units = estimate_text_units(chunk)
+                if not chunk:
+                    continue
+                line_content += f'<hp:t>{xml_escape(chunk)}</hp:t>'
+                line_units += chunk_units
+                has_body = True
+
+    if line_content or not paragraphs:
+        paragraphs.append(make_paragraph(
+            content=line_content,
+            para_id=para_id,
+            paraPrIDRef=paraPrIDRef,
+            charPrIDRef=charPrIDRef,
+            vertsize=line_params[0],
+            textheight=line_params[1],
+            baseline=line_params[2],
+            spacing=line_params[3],
+        ))
+
+    return paragraphs
 
 
 def make_paragraph(content="", para_id="2147483648", paraPrIDRef="0", charPrIDRef="1",
@@ -146,22 +296,15 @@ def make_choices_xml(choices, force_compact=False):
     else:
         # Individual lines for each choice
         for i, choice_parts in enumerate(choices):
-            content = f'<hp:t>{CHOICE_SYMBOLS[i]} </hp:t>'
-            max_eq = (1000, 1000, 850, 600)
-            for part in choice_parts:
-                if "eq" in part:
-                    content += make_equation_xml(part["eq"])
-                    params = lineseg_params_for_eq(part["eq"])
-                    if params[0] > max_eq[0]:
-                        max_eq = params
-                elif "t" in part:
-                    content += f'<hp:t>{xml_escape(part["t"])}</hp:t>'
-
-            p = (f'<hp:p id="2147483648" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">'
-                 f'<hp:run charPrIDRef="1">{content}</hp:run>'
-                 f'{make_lineseg(0, max_eq[0], max_eq[1], max_eq[2], max_eq[3])}'
-                 f'</hp:p>')
-            paragraphs.append(p)
+            first_prefix_text = f"{CHOICE_SYMBOLS[i]} "
+            paragraphs.extend(make_wrapped_part_paragraphs(
+                choice_parts,
+                first_prefix=f'<hp:t>{first_prefix_text}</hp:t>',
+                first_prefix_units=estimate_text_units(first_prefix_text),
+                continuation_prefix='<hp:t>   </hp:t>',
+                continuation_units=estimate_text_units("   "),
+                max_units=CHOICE_LINE_MAX_UNITS,
+            ))
 
     return "".join(paragraphs)
 
@@ -203,12 +346,13 @@ def make_endnote(number, answer, explanation_parts, prob_type="choice", explanat
 
     expl_xml = ""
     for parts_group in explanation_paragraphs:
-        content, max_eq = parts_to_run_content(parts_group)
-        if content:
-            expl_xml += (f'<hp:p id="0" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">'
-                        f'<hp:run charPrIDRef="1">{content}</hp:run>'
-                        f'{make_lineseg(0, max_eq[0], max_eq[1], max_eq[2], max_eq[3])}'
-                        f'</hp:p>')
+        expl_xml += "".join(make_wrapped_part_paragraphs(
+            parts_group,
+            para_id="0",
+            paraPrIDRef="0",
+            charPrIDRef="1",
+            max_units=PROBLEM_LINE_MAX_UNITS,
+        ))
 
     # explanation_table (증감표, 조립제법 등) — explanation_parts 뒤에 삽입
     if explanation_table and base_path:
@@ -361,26 +505,14 @@ def main(exam_json=None, output_dir=None, base_path=None):
         parts_has_marker = bool(parts) and parts[0].get("t", "").startswith("[서술형")
         prefix = f'<hp:t>[서술형 {essay_count}] </hp:t>' if ptype == "essay" and not parts_has_marker else ""
 
-        prob_content = endnote_xml + prefix
-        max_eq_params = (1000, 1000, 850, 600)
-
-        for part in parts:
-            if "eq" in part:
-                if part.get("indent"):
-                    prob_content += '<hp:tab width="2000" leader="0" type="1"/>'
-                prob_content += make_equation_xml(part["eq"])
-                params = lineseg_params_for_eq(part["eq"])
-                if params[0] > max_eq_params[0]:
-                    max_eq_params = params
-            elif "t" in part:
-                text = part["t"].replace("\n", " ")
-                prob_content += f'<hp:t>{xml_escape(text)}</hp:t>'
-
-        prob_p = (f'<hp:p id="2147483648" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">'
-                  f'<hp:run charPrIDRef="1">{prob_content}</hp:run>'
-                  f'{make_lineseg(0, max_eq_params[0], max_eq_params[1], max_eq_params[2], max_eq_params[3])}'
-                  f'</hp:p>')
-        problem_paras.append(prob_p)
+        problem_paras.extend(make_wrapped_part_paragraphs(
+            parts,
+            first_prefix=endnote_xml + prefix,
+            first_prefix_units=PROBLEM_NUMBER_UNITS + (estimate_text_units("[essay 00] ") if prefix else 0),
+            continuation_prefix="",
+            continuation_units=0,
+            max_units=PROBLEM_LINE_MAX_UNITS,
+        ))
         problem_paras.append(make_empty_para())
 
         # Figure — figure_status.json에서 finalImage 읽기 (figure_info["final_image"] 참조 폐기)

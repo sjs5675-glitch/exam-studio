@@ -362,7 +362,7 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
         const r = await fetch("/api/build-status");
         const data: BuildStatus = await r.json();
         setBuildStatus(data);
-        if (!data.pending && (data.status === "success" || data.status === "failed")) {
+        if (!data.pending && (data.status === "success" || data.status === "completed" || data.status === "failed")) {
           if (buildIntervalRef.current) {
             clearInterval(buildIntervalRef.current);
             buildIntervalRef.current = null;
@@ -1117,13 +1117,13 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
             {showBuildStatus && buildStatus && !buildStatus.pending && (
               <Card className={cn(
                 "p-4 border shadow-sm",
-                buildStatus.status === "success" ? "border-green-500/30 bg-green-500/5" :
+                buildStatus.status === "success" || buildStatus.status === "completed" ? "border-green-500/30 bg-green-500/5" :
                 buildStatus.status === "failed" ? "border-destructive/30 bg-destructive/5" : "border-yellow-500/30 bg-yellow-500/5"
               )}>
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold">HWPX Build Status</h3>
                   <span className={cn("text-xs font-bold uppercase",
-                    buildStatus.status === "success" ? "text-green-600" :
+                    buildStatus.status === "success" || buildStatus.status === "completed" ? "text-green-600" :
                     buildStatus.status === "failed" ? "text-destructive" : "text-yellow-600"
                   )}>
                     {buildStatus.status}

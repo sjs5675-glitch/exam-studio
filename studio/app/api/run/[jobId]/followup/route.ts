@@ -90,7 +90,11 @@ async function persistResult(
   orchResult: OrchestratorResult
 ): Promise<void> {
   try {
-    job.status = orchResult.status === "done" ? "done" : "failed";
+    const noOutputFailure =
+      orchResult.status === "done" &&
+      !orchResult.outputFile &&
+      /(failed|failure|error|실패|오류)/i.test(orchResult.resultSummary ?? "");
+    job.status = orchResult.status === "done" && !noOutputFailure ? "done" : "failed";
     const followups = job.followups as Array<Record<string, unknown>> | undefined;
     const lastFollowup = followups?.[followups.length - 1];
     if (lastFollowup) lastFollowup.finishedAt = new Date().toISOString();

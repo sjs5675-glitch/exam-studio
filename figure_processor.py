@@ -292,6 +292,37 @@ def process_figure(
     return _make_q_status(_is_boundary_uncertain(box, iw, ih, gen_data))
 
 
+def _read_status(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {"status": "done", "questions": {}}
+
+
+def _derive_top_status(questions: dict[str, dict]) -> str:
+    if not questions:
+        return "done"
+    statuses = {q.get("status") for q in questions.values()}
+    if "failed" not in statuses and "boundary_uncertain" not in statuses:
+        return "done"
+    if "failed" in statuses and all(s == "failed" for s in statuses):
+        return "failed"
+    return "partial"
+
+
+def _status_with_summary(questions: dict[str, dict]) -> dict:
+    top_status = _derive_top_status(questions)
+    success = sorted(int(k) for k, v in questions.items() if v.get("status") in {"ok", "boundary_uncertain"})
+    failed = sorted(int(k) for k, v in questions.items() if v.get("status") == "failed")
+    return {
+        "status": top_status,
+        "completed": top_status == "done",
+        "success": success,
+        "failed": failed,
+        "questions": questions,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Figure Processor — crop+image-provider+trim pipeline"
@@ -375,12 +406,10 @@ def main() -> None:
 
     if not figures:
         print("그림 있는 문제 없음, 종료")
-        status_data: dict = {
-            "status": "done",
-            "questions": {},
-        }
+        existing = _read_status(status_out_path) if args.question is not None else {}
+        status_data = _status_with_summary(existing.get("questions", {}))
         status_out_path.write_text(
-            json.dumps(status_data, ensure_ascii=False), encoding="utf-8"
+            json.dumps(status_data, ensure_ascii=False, indent=2), encoding="utf-8"
         )
         return
 
@@ -405,25 +434,20 @@ def main() -> None:
         )
         questions_status[str(n)] = q_result
 
-    # Derive top-level status
-    statuses = {v["status"] for v in questions_status.values()}
-    if "failed" not in statuses and "boundary_uncertain" not in statuses:
-        top_status = "done"
-    elif "failed" in statuses and all(s == "failed" for s in statuses):
-        top_status = "failed"
+    if args.question is not None:
+        existing = _read_status(status_out_path)
+        merged_questions = dict(existing.get("questions", {}))
+        merged_questions.update(questions_status)
     else:
-        top_status = "partial"
+        merged_questions = questions_status
 
-    status_data = {
-        "status": top_status,
-        "questions": questions_status,
-    }
+    status_data = _status_with_summary(merged_questions)
 
     status_out_path.write_text(
         json.dumps(status_data, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
-    print(f"\n완료: status={top_status}")
+    print(f"\n완료: status={status_data['status']}")
     failed_qs = [k for k, v in questions_status.items() if v["status"] == "failed"]
     if failed_qs:
         print(f"실패: {failed_qs}")
