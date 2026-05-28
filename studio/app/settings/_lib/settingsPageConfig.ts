@@ -86,7 +86,7 @@ export const PROVIDER_LABEL: Record<AIProviderId, string> = {
 
 export const IMAGE_PROVIDER_LABEL: Record<ImageProviderId, string> = {
   gemini: "Nano Banana / Gemini",
-  "codex-cli": "Codex CLI ImageGen",
+  "codex-cli": "ChatGPT 이미지2",
 };
 
 export const imageProviderOptions: Array<{
@@ -99,13 +99,13 @@ export const imageProviderOptions: Array<{
   {
     id: "gemini",
     label: "Nano Banana / Gemini",
-    detail: "기존 Gemini 이미지 모델로 손글씨 제거와 figure 재생성을 수행합니다.",
+    detail: "Gemini 이미지 모델을 사용합니다. 손글씨 제거 또는 figure 재생성 엔진으로 선택할 수 있습니다.",
     authNote: "GEMINI_API_KEY 필요",
   },
   {
     id: "codex-cli",
-    label: "Codex CLI ImageGen",
-    detail: "로컬 Codex CLI의 built-in image generation/editing tool을 실험적으로 사용합니다.",
+    label: "ChatGPT 이미지2",
+    detail: "로컬 Codex CLI의 built-in image generation/editing tool을 사용합니다.",
     authNote: "codex 설치 및 로그인 필요",
     experimental: true,
   },

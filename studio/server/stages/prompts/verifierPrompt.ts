@@ -15,22 +15,23 @@ export interface VerifierPromptInput {
   examMeta?: ExamMeta;
 }
 
-const VERIFIER_SYSTEM = `너는 V3 시험지 해설 검증 전문 에이전트다. solver가 생성한 해설을 독립적으로 검증하여 품질을 보장한다.
+const VERIFIER_SYSTEM = `너는 V3 과학 시험지·문제집 해설 검증 전문 에이전트다. solver가 생성한 해설을 독립적으로 검증하여 품질을 보장한다.
 
 ## 핵심 원칙
 
 - 생성 에이전트(solver)와 완전 분리된 검증자
-- 해설의 수학적 정확성과 교과 범위 준수를 독립적으로 평가
+- 해설의 과학적 정확성, 계산 정확성, 교과 범위 준수를 독립적으로 평가
 - fail 시 solver가 재생성할 수 있도록 구체적인 feedback 제공
 - 공백·rm체·DEG·cdot 등 포맷 세부사항은 후처리 normalizer가 교정하므로 verifier는 수학/논리/정답에 집중
 
 ## 검증 항목
 
-### A. 수학적 정확성
+### A. 과학적·계산적 정확성
 
 1. 답 역산: 해설의 풀이 과정을 처음부터 따라가서 최종 답이 정답과 일치하는지
-2. 중간 계산: 각 등호 전환(=)이 수학적으로 올바른지 — 한 단계씩 검산
+2. 중간 계산: 각 등호 전환(=), 단위 변환, 비례/그래프 해석이 올바른지 — 한 단계씩 검산
 3. 풀이 완결성: 논리적 비약 없이 처음부터 답까지 도달하는지
+4. 과학 개념: 실험 조건, 원리, 용어, 단위, 화학식/기호/그래프 해석이 원문과 일치하는지
 
 ### B. 교과 범위 준수
 
@@ -53,7 +54,7 @@ const VERIFIER_SYSTEM = `너는 V3 시험지 해설 검증 전문 에이전트�
 
 ## issue category 값
 
-- "math_accuracy": 수학적 계산 오류
+- "math_accuracy": 계산·단위·정량 해석 오류
 - "math_completeness": 풀이 논리 비약/불완전
 - "curriculum_scope": 교과 범위 초과
 - "curriculum_term": 교과 용어 불일치
@@ -88,7 +89,15 @@ const VERIFIER_SYSTEM = `너는 V3 시험지 해설 검증 전문 에이전트�
 JSON만 반환하고 마크다운 코드 블록 없이 출력하라.
 `;
 
-function buildVerifierSystemPrompt(schoolLevel?: SchoolLevel): string {
+function isScienceSubject(subject?: string): boolean {
+  return Boolean(subject && /(과학|물리|화학|생명|지구)/.test(subject));
+}
+
+function buildVerifierSystemPrompt(schoolLevel?: SchoolLevel, subject?: string): string {
+  if (isScienceSubject(subject)) {
+    const level = schoolLevel === "고" ? "고등학교" : schoolLevel === "중" ? "중학교" : "해당 학교급";
+    return VERIFIER_SYSTEM + `\n이 문제는 ${level} 과학 문제입니다. 교과서 수준의 과학 개념, 단위, 실험 조건, 그래프/표 해석을 기준으로 검증하세요.`;
+  }
   if (schoolLevel === "중") {
     return VERIFIER_SYSTEM + "\n이 문제는 중학교 수준입니다. 중학교 풀이는 중학교 범위 안에서만 검증하세요 (미적분·삼각함수 등 고교 개념 사용 시 fail).";
   }
@@ -110,12 +119,12 @@ export function buildVerifierPrompt(input: VerifierPromptInput): { system: strin
 
   parts.push(
     "위 문제와 해설을 독립적으로 검증하라. " +
-    "수학적 정확성, 교과 범위 준수, 수식 구조를 확인하라. " +
+    "과학적 정확성, 계산 정확성, 교과 범위 준수, 수식 구조를 확인하라. " +
     "JSON만 반환하고 마크다운 코드 블록 없이 출력하라."
   );
 
   return {
-    system: buildVerifierSystemPrompt(input.examMeta?.schoolLevel),
+    system: buildVerifierSystemPrompt(input.examMeta?.schoolLevel, input.examMeta?.subject),
     user: parts.join("\n\n"),
   };
 }

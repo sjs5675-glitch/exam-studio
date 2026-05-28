@@ -9,6 +9,7 @@ export interface StageCommandOptions {
   cwd?: string;
   env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
+  signal?: AbortSignal;
 }
 
 export interface StageCommandResult {
@@ -31,6 +32,7 @@ export async function runStageCommand(options: StageCommandOptions): Promise<Sta
   return new Promise((resolve) => {
     let settled = false;
     let timedOut = false;
+    let aborted = false;
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
 
@@ -48,6 +50,26 @@ export async function runStageCommand(options: StageCommandOptions): Promise<Sta
       stdio: ["ignore", "pipe", "pipe"],
     });
 
+    const terminateChild = () => {
+      if (!child.pid) return;
+      try {
+        if (process.platform === "win32") {
+          crossSpawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
+            stdio: "ignore",
+          });
+        } else {
+          child.kill("SIGTERM");
+        }
+      } catch {
+        try { child.kill("SIGTERM"); } catch { /* already dead */ }
+      }
+    };
+
+    const onAbort = () => {
+      aborted = true;
+      terminateChild();
+    };
+
     const finish = (
       status: StageCommandStatus,
       exitCode: number | null,
@@ -57,6 +79,7 @@ export async function runStageCommand(options: StageCommandOptions): Promise<Sta
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      options.signal?.removeEventListener("abort", onAbort);
 
       resolve({
         command: options.command,
@@ -75,14 +98,24 @@ export async function runStageCommand(options: StageCommandOptions): Promise<Sta
     const timer = options.timeoutMs
       ? setTimeout(() => {
           timedOut = true;
-          child.kill("SIGTERM");
+          terminateChild();
         }, options.timeoutMs)
       : undefined;
+
+    if (options.signal?.aborted) {
+      onAbort();
+    } else {
+      options.signal?.addEventListener("abort", onAbort, { once: true });
+    }
 
     child.stdout?.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
     child.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
     child.on("error", (error) => finish("spawn_error", null, null, error));
     child.on("close", (exitCode, signal) => {
+      if (aborted) {
+        finish("non_zero_exit", exitCode, signal);
+        return;
+      }
       if (timedOut) {
         finish("timeout", exitCode, signal);
         return;

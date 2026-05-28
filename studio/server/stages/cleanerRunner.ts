@@ -11,6 +11,10 @@
 import path from "path";
 import { readFile } from "fs/promises";
 import type { ImageProviderId } from "@/lib/ai/settings";
+import {
+  acquireImageCleanerLock,
+  ImageCleanerBusyError,
+} from "@/lib/server/imageCleanerLock";
 import { runStageCommand } from "./commands";
 
 // ──────────────────────────────────────────────
@@ -40,6 +44,8 @@ export interface CleanerRunnerOutput {
   status: "done" | "partial" | "failed";
   /** cleaning_status.json 절대 경로 */
   statusJsonPath: string;
+  reason?: "busy";
+  message?: string;
 }
 
 // ──────────────────────────────────────────────
@@ -89,26 +95,52 @@ export async function runCleanerStage(
     args.push("--question", String(input.questionNumber));
   }
 
+  let lock;
+  try {
+    lock = await acquireImageCleanerLock({
+      questionImagesDir: input.questionImagesDir,
+      statusOutPath: input.statusOutPath,
+      clean: input.clean,
+      imageProvider: input.imageProvider,
+      questionNumber: input.questionNumber,
+    });
+  } catch (err) {
+    if (err instanceof ImageCleanerBusyError) {
+      return {
+        status: "failed",
+        statusJsonPath: input.statusOutPath,
+        reason: "busy",
+        message: "이미지 정리/손글씨 제거 작업이 이미 실행 중입니다.",
+      };
+    }
+    throw err;
+  }
+
+  try {
   const result = await runStageCommand({
     command: python,
     args,
     cwd: baseDir,
     timeoutMs: 600_000, // 10 minutes — N문제 × 4-8s 마진
+    signal: input.signal,
     ...(input.env ? { env: input.env } : {}),
   });
 
-  if (result.status !== "success") {
+    if (result.status !== "success") {
+      return {
+        status: "failed",
+        statusJsonPath: input.statusOutPath,
+      };
+    }
+
+    const parsed = await parseCleanerStatusJson(input.statusOutPath);
     return {
-      status: "failed",
+      status: parsed.status,
       statusJsonPath: input.statusOutPath,
     };
+  } finally {
+    await lock.release();
   }
-
-  const parsed = await parseCleanerStatusJson(input.statusOutPath);
-  return {
-    status: parsed.status,
-    statusJsonPath: input.statusOutPath,
-  };
 }
 
 // ──────────────────────────────────────────────

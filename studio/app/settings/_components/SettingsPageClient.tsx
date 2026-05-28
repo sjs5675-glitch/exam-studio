@@ -103,6 +103,10 @@ export default function SettingsPage() {
     setSettings(writeAISettings({ ...settings, imageProvider }));
   };
 
+  const selectImageCleaningProvider = (imageCleaningProvider: ImageProviderId) => {
+    setSettings(writeAISettings({ ...settings, imageCleaningProvider }));
+  };
+
   const toggleDeepSeek = () => {
     setSettings(writeAISettings({
       ...settings,
@@ -400,65 +404,128 @@ export default function SettingsPage() {
 
             <div className="rounded-lg border bg-card">
               <div className="border-b px-4 py-4">
-                <h2 className="text-base font-medium">이미지 처리 Provider</h2>
+                <h2 className="text-base font-medium">이미지 엔진</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  손글씨 제거와 figure 재생성에 사용할 이미지 provider입니다. Codex CLI는 built-in image generation tool을 사용하는 실험 옵션입니다.
+                  손글씨 제거와 figure 재생성 엔진을 따로 선택합니다.
                 </p>
               </div>
 
-              <div className="grid gap-2 p-4 md:grid-cols-2">
-                {imageProviderOptions.map((option) => {
-                  const selected = option.id === settings.imageProvider;
-                  const hasWarning = option.id === "gemini"
-                    ? !(envStatus.GEMINI_API_KEY?.configured ?? false)
-                    : !((cliStatus.codexCli?.available ?? false) && (cliStatus.codexCli?.authenticated ?? false));
+              <div className="space-y-5 p-4">
+                <div className="space-y-2">
+                  <h3 className="text-sm font-medium">손글씨 제거 엔진</h3>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    {imageProviderOptions.map((option) => {
+                      const selected = option.id === settings.imageCleaningProvider;
+                      const hasWarning = option.id === "gemini"
+                        ? !(envStatus.GEMINI_API_KEY?.configured ?? false)
+                        : !((cliStatus.codexCli?.available ?? false) && (cliStatus.codexCli?.authenticated ?? false));
 
-                  return (
-                    <button
-                      key={option.id}
-                      type="button"
-                      onClick={() => selectImageProvider(option.id)}
-                      disabled={hasWarning && !selected}
-                      className={cn(
-                        "min-h-32 rounded-lg border p-4 text-left transition-colors disabled:cursor-not-allowed",
-                        selected
-                          ? "border-primary bg-primary/5"
-                          : hasWarning
-                          ? "border-destructive/40 opacity-60"
-                          : "border-border hover:border-primary/40 hover:bg-muted/40"
-                      )}
-                    >
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-sm font-medium">{option.label}</span>
-                          {option.experimental && (
-                            <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
-                              experimental
-                            </span>
-                          )}
-                          {hasWarning && (
-                            <AlertTriangle className="size-3.5 text-destructive" aria-label={option.authNote} />
-                          )}
-                        </div>
-                        <span
+                      return (
+                        <button
+                          key={`cleaning-${option.id}`}
+                          type="button"
+                          onClick={() => selectImageCleaningProvider(option.id)}
+                          disabled={hasWarning && !selected}
                           className={cn(
-                            "flex size-5 items-center justify-center rounded-full border",
+                            "min-h-28 rounded-lg border p-4 text-left transition-colors disabled:cursor-not-allowed",
                             selected
-                              ? "border-primary bg-primary text-primary-foreground"
-                              : "border-muted-foreground/30 text-transparent"
+                              ? "border-primary bg-primary/5"
+                              : hasWarning
+                              ? "border-destructive/40 opacity-60"
+                              : "border-border hover:border-primary/40 hover:bg-muted/40"
                           )}
-                          aria-hidden="true"
                         >
-                          <Check className="size-3.5" />
-                        </span>
-                      </div>
-                      <p className="text-xs leading-5 text-muted-foreground">{option.detail}</p>
-                      <p className={cn("mt-3 text-xs", hasWarning ? "text-destructive" : "text-muted-foreground")}>
-                        {hasWarning ? "⚠ " : ""}{option.authNote}
-                      </p>
-                    </button>
-                  );
-                })}
+                          <div className="mb-2 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-sm font-medium">{option.label}</span>
+                              {option.experimental && (
+                                <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+                                  experimental
+                                </span>
+                              )}
+                              {hasWarning && (
+                                <AlertTriangle className="size-3.5 text-destructive" aria-label={option.authNote} />
+                              )}
+                            </div>
+                            <span
+                              className={cn(
+                                "flex size-5 items-center justify-center rounded-full border",
+                                selected
+                                  ? "border-primary bg-primary text-primary-foreground"
+                                  : "border-muted-foreground/30 text-transparent"
+                              )}
+                              aria-hidden="true"
+                            >
+                              <Check className="size-3.5" />
+                            </span>
+                          </div>
+                          <p className="text-xs leading-5 text-muted-foreground">{option.detail}</p>
+                          <p className={cn("mt-3 text-xs", hasWarning ? "text-destructive" : "text-muted-foreground")}>
+                            {hasWarning ? "⚠ " : ""}{option.authNote}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="text-sm font-medium">그림 재생성 엔진</h3>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    {imageProviderOptions.map((option) => {
+                      const selected = option.id === settings.imageProvider;
+                      const hasWarning = option.id === "gemini"
+                        ? !(envStatus.GEMINI_API_KEY?.configured ?? false)
+                        : !((cliStatus.codexCli?.available ?? false) && (cliStatus.codexCli?.authenticated ?? false));
+
+                      return (
+                        <button
+                          key={`figure-${option.id}`}
+                          type="button"
+                          onClick={() => selectImageProvider(option.id)}
+                          disabled={hasWarning && !selected}
+                          className={cn(
+                            "min-h-28 rounded-lg border p-4 text-left transition-colors disabled:cursor-not-allowed",
+                            selected
+                              ? "border-primary bg-primary/5"
+                              : hasWarning
+                              ? "border-destructive/40 opacity-60"
+                              : "border-border hover:border-primary/40 hover:bg-muted/40"
+                          )}
+                        >
+                          <div className="mb-2 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-sm font-medium">{option.label}</span>
+                              {option.experimental && (
+                                <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+                                  experimental
+                                </span>
+                              )}
+                              {hasWarning && (
+                                <AlertTriangle className="size-3.5 text-destructive" aria-label={option.authNote} />
+                              )}
+                            </div>
+                            <span
+                              className={cn(
+                                "flex size-5 items-center justify-center rounded-full border",
+                                selected
+                                  ? "border-primary bg-primary text-primary-foreground"
+                                  : "border-muted-foreground/30 text-transparent"
+                              )}
+                              aria-hidden="true"
+                            >
+                              <Check className="size-3.5" />
+                            </span>
+                          </div>
+                          <p className="text-xs leading-5 text-muted-foreground">{option.detail}</p>
+                          <p className={cn("mt-3 text-xs", hasWarning ? "text-destructive" : "text-muted-foreground")}>
+                            {hasWarning ? "⚠ " : ""}{option.authNote}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
 
               <div className="space-y-4 border-t px-4 py-4">
@@ -499,7 +566,9 @@ export default function SettingsPage() {
               <div>
                 <h2 className="text-base font-medium">현재 선택</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  다음 작업부터 <code className="text-xs bg-muted px-1 rounded">{settings.defaultProvider}</code> provider와 stage override 설정이 요청 본문에 포함됩니다.
+                  다음 작업부터 <code className="text-xs bg-muted px-1 rounded">{settings.defaultProvider}</code> provider,
+                  손글씨 제거 <code className="text-xs bg-muted px-1 rounded">{IMAGE_PROVIDER_LABEL[settings.imageCleaningProvider]}</code>,
+                  그림 재생성 <code className="text-xs bg-muted px-1 rounded">{IMAGE_PROVIDER_LABEL[settings.imageProvider]}</code> 설정이 요청 본문에 포함됩니다.
                 </p>
               </div>
               <Button

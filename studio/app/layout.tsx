@@ -19,7 +19,7 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: "Exam Studio",
-  description: "시험지 제작 · 검수 도구",
+  description: "과학 시험지·문제집 타이핑 및 검수 도구",
 };
 
 export default function RootLayout({

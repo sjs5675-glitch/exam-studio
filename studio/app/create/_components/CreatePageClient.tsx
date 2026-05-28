@@ -4,7 +4,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { type CropperWorkspaceRef } from "@/components/cropper/CropperWorkspace";
 import { CropperModal } from "@/components/upload/CropperModal";
-import { HIGH_SCHOOL_SUBJECTS, MIDDLE_SCHOOL_SUBJECT, type MetaValue, type SchoolLevel } from "@/components/upload/MetaForm";
+import {
+  CURRICULUM_OPTIONS,
+  FIGURE_MODES,
+  SCIENCE_SUBJECTS,
+  WORKBOOK_ROLES,
+  WORKBOOK_TYPES,
+  type Curriculum,
+  type DocumentKind,
+  type FigureMode,
+  type MetaValue,
+  type SchoolLevel,
+  type WorkbookBookType,
+  type WorkbookRole,
+} from "@/components/upload/MetaForm";
 import { parseExamMetaFromFilename } from "@/lib/pdf/filenameMeta";
 import type { ExamMetaInput } from "@/lib/exam/meta";
 import { useJobRunner } from "@/lib/useJobRunner";
@@ -43,6 +56,43 @@ import {
 
 interface CreateV4PageProps {
   currentYear: number;
+}
+
+const fieldShellClass = "grid grid-cols-[3.25rem_minmax(0,1fr)] items-center gap-2 min-w-0";
+const fieldLabelClass = "text-[10px] text-muted-foreground font-semibold shrink-0";
+const fieldInputClass = "w-full min-w-0 px-0 py-0.5 text-sm bg-transparent border-b border-transparent focus:border-primary outline-none transition-colors placeholder:text-muted-foreground/40 disabled:opacity-70";
+
+type CreateStartError = Error & { hint?: string; code?: string };
+
+function getEffectiveMeta(hasJob: boolean, meta: MetaValue, v3Meta: ExamMetaInput | null | undefined): MetaValue {
+  return hasJob ? { ...meta, ...(v3Meta ?? {}) } : meta;
+}
+
+function isTeacherWorkbook(meta: MetaValue): boolean {
+  return (meta.documentKind ?? "science_workbook") === "science_workbook" && meta.workbookRole === "teacher";
+}
+
+function withDocumentKind(meta: MetaValue, documentKind: DocumentKind): MetaValue {
+  return {
+    ...meta,
+    documentKind,
+    examType: documentKind === "science_workbook" ? "문제집" : "중간",
+    outputVersion: documentKind === "science_workbook"
+      ? (meta.workbookRole === "teacher" ? "교사용" : "학생용")
+      : "시험지",
+    answerPolicy: documentKind === "science_workbook" && meta.workbookRole === "teacher"
+      ? "blue_keep"
+      : "none",
+  };
+}
+
+function withWorkbookRole(meta: MetaValue, workbookRole: WorkbookRole): MetaValue {
+  return {
+    ...meta,
+    workbookRole,
+    outputVersion: workbookRole === "teacher" ? "교사용" : "학생용",
+    answerPolicy: workbookRole === "teacher" ? "blue_keep" : "none",
+  };
 }
 
 export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
@@ -144,11 +194,17 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
   const geminiMissing = geminiConfigured === false;
   const autoSplitActive = autoSplitEnabled && !geminiMissing;
 
-  // 선택된 이미지 provider가 확실히 미가용일 때만 이미지 정리를 막는다 (null=확인 전/실패 → 막지 않음).
-  const imageProviderMissing = aiSettings.imageProvider === "codex-cli"
+  // 선택된 손글씨 제거 provider가 확실히 미가용일 때만 이미지 정리를 막는다 (null=확인 전/실패 → 막지 않음).
+  const cleaningProviderMissing = aiSettings.imageCleaningProvider === "codex-cli"
     ? codexReady === false
     : geminiMissing;
-  const imageCleaningActive = aiSettings.imageCleaningEnabled && !imageProviderMissing;
+  const imageCleaningActive = aiSettings.imageCleaningEnabled && !cleaningProviderMissing;
+  const autoFigureProviderMissing = meta.figureMode === "auto" && aiSettings.figureRegen && (
+    aiSettings.imageProvider === "codex-cli" ? codexReady === false : geminiMissing
+  );
+  const figureProviderMissing = (
+    meta.figureMode === "chatgpt-image2" && codexReady === false
+  ) || autoFigureProviderMissing;
 
   const deepSeekStages = AI_STAGE_KEYS.filter(
     (key) => aiSettings.stageOverrides[key] === "deepseek-v4"
@@ -164,10 +220,18 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
   }
 
   function handleMetaChange(next: MetaValue) {
+    const switchedToTeacherWorkbook = !isTeacherWorkbook(meta) && isTeacherWorkbook(next);
     setMeta(next);
     try {
       sessionStorage.setItem(META_LS_KEY, JSON.stringify(next));
     } catch {}
+
+    if (switchedToTeacherWorkbook && aiSettings.imageCleaningEnabled) {
+      setAiSettings(writeAISettings({
+        ...aiSettings,
+        imageCleaningEnabled: false,
+      }));
+    }
   }
 
   const handlePdfSelected = useCallback((fileName: string) => {
@@ -192,17 +256,19 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
     if (!v3Meta || hasJob) return;
     queueMicrotask(() => {
       setMeta({
-        schoolLevel: v3Meta.schoolLevel ?? "고",
-        school: v3Meta.school ?? "",
-        grade: v3Meta.grade ?? 2,
+        ...defaultMeta,
+        ...v3Meta,
+        schoolLevel: v3Meta.schoolLevel ?? defaultMeta.schoolLevel,
+        school: v3Meta.school ?? defaultMeta.school,
+        grade: v3Meta.grade ?? defaultMeta.grade,
         year: v3Meta.year ?? currentYear,
-        subject: v3Meta.subject ?? "수학 I",
-        semester: v3Meta.semester ?? "1학기",
-        examType: v3Meta.examType ?? "중간",
-        range: v3Meta.range ?? "",
+        subject: v3Meta.subject ?? defaultMeta.subject,
+        semester: v3Meta.semester ?? defaultMeta.semester,
+        examType: v3Meta.examType ?? defaultMeta.examType,
+        range: v3Meta.range ?? defaultMeta.range,
       });
     });
-  }, [v3Meta, hasJob, currentYear]);
+  }, [v3Meta, hasJob, currentYear, defaultMeta]);
 
   // 이전 작업 재개 상태
   const [existingImages, setExistingImages] = useState<ExistingImages | null>(null);
@@ -235,15 +301,6 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
     setFigureModalOpen(true);
   }, [mode, jobId, stages]);
 
-  const isMetaComplete =
-    meta.school.trim().length > 0 &&
-    meta.grade > 0 &&
-    meta.year > 0 &&
-    meta.subject.trim().length > 0 &&
-    meta.semester.trim().length > 0 &&
-    meta.examType.trim().length > 0 &&
-    meta.range.trim().length > 0;
-
   // 이전 작업 재개 이미지 fetch (진행 중인 작업이 없을 때만)
   useEffect(() => {
     if (hasJob) return;
@@ -265,14 +322,8 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
     } catch { /* ignore */ }
 
     const jobMeta = {
-      schoolLevel: cachedMeta.schoolLevel ?? meta.schoolLevel,
-      school: cachedMeta.school ?? meta.school,
-      grade: cachedMeta.grade ?? meta.grade,
-      year: cachedMeta.year ?? meta.year,
-      subject: cachedMeta.subject ?? meta.subject,
-      semester: cachedMeta.semester ?? meta.semester,
-      examType: cachedMeta.examType ?? meta.examType,
-      range: cachedMeta.range ?? meta.range,
+      ...meta,
+      ...cachedMeta,
       questionCount: existingImages.count,
       resumeFrom: "auto",
     };
@@ -334,8 +385,8 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
     async (items: { number: number; kind?: "regular" | "essay"; blob: Blob }[]) => {
       if (items.length === 0) return;
 
-      if (!isMetaComplete) {
-        setSubmitError("학교/학년/학년도/과목/학기/시험/범위 7개 필드를 모두 입력하세요.");
+      if (figureProviderMissing) {
+        setSubmitError("선택한 그림 처리 엔진을 사용할 수 없습니다. 설정에서 Codex CLI 로그인 또는 Gemini API 키 상태를 확인하세요.");
         return;
       }
 
@@ -370,14 +421,21 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
       try {
         const res = await fetch("/api/create/start", { method: "POST", body: formData });
         if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error((errData as { error?: string }).error ?? `작업 시작 실패 (${res.status})`);
+          const errData = await res.json().catch(() => ({})) as { error?: string; hint?: string; code?: string };
+          const err = new Error(errData.error ?? `작업 시작 실패 (${res.status})`) as CreateStartError;
+          err.hint = errData.hint;
+          err.code = errData.code;
+          throw err;
         }
         const data = (await res.json()) as { ok: true; images: { number: number }[] };
         saved = data.images;
       } catch (e) {
+        const err = e as CreateStartError;
         setSubmitError(e instanceof Error ? e.message : "작업 시작 실패");
-        setRecoveryHint("디스크 상태가 rollback되어 이전 상태로 복구되었습니다. 다시 시도하세요.");
+        setRecoveryHint(
+          err.hint ??
+          "디스크 상태가 rollback되어 이전 상태로 복구되었습니다. 다시 시도하세요."
+        );
         setSubmitting(false);
         return;
       }
@@ -397,131 +455,291 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
         setSubmitting(false);
       }
     },
-    [meta, isMetaComplete, deepSeekBlocksCreate, startJob, setV3Meta]
+    [meta, figureProviderMissing, deepSeekBlocksCreate, startJob, setV3Meta]
   );
 
   return (
     <div className="flex flex-col h-[calc(100vh-140px)] overflow-hidden bg-background text-foreground">
-      {/* Sophisticated Studio Control Center (Top Bar) */}
+      {/* Studio Control Center (Top Bar) */}
       <div className="shrink-0 border rounded-2xl mb-5 bg-card shadow-sm flex items-start p-1 overflow-hidden">
-        {/* Section 1: Exam Configuration (The Form) */}
-        <div className="px-5 py-3 flex-[3] min-w-0">
+        {/* Section 1: Science document configuration */}
+        <div className="px-5 py-3 flex-[4] min-w-0">
           <div className="flex items-center gap-2 mb-3">
-            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Exam Configuration</span>
+            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Science Typing Setup</span>
             {!hasJob && <span className="flex h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />}
             {hasJob && <span className="text-[9px] font-bold text-primary px-1.5 py-0.5 rounded bg-primary/10 border border-primary/20">LOCKED</span>}
           </div>
           
           {(() => {
-            const effectiveLevel: SchoolLevel = (hasJob ? (v3Meta?.schoolLevel ?? meta.schoolLevel) : meta.schoolLevel) ?? "고";
-            const isMiddle = effectiveLevel === "중";
-            const handleLevelChange = (next: SchoolLevel) => {
-              const nextSubject = next === "중" ? MIDDLE_SCHOOL_SUBJECT : (HIGH_SCHOOL_SUBJECTS.includes(meta.subject as typeof HIGH_SCHOOL_SUBJECTS[number]) ? meta.subject : HIGH_SCHOOL_SUBJECTS[0]);
-              handleMetaChange({ ...meta, schoolLevel: next, subject: nextSubject });
-            };
-            const subjectOptions = isMiddle ? [MIDDLE_SCHOOL_SUBJECT] : [...HIGH_SCHOOL_SUBJECTS];
+            const effectiveMeta = getEffectiveMeta(hasJob, meta, v3Meta);
+            const documentKind = effectiveMeta.documentKind ?? "science_workbook";
+            const isWorkbook = documentKind === "science_workbook";
+            const disabled = submitting || isRunning || hasJob;
             return (
               <div className="flex flex-col gap-2.5">
-                {/* Row 1: 학교급 | 학년도 | 학교 | 학년 */}
-                <div className="grid grid-cols-4 gap-x-6 gap-y-2">
-                  <div className="flex items-center gap-3">
-                    <span className="text-[10px] w-10 text-muted-foreground font-semibold shrink-0">학교급</span>
+                <div className="grid grid-cols-4 gap-x-4 gap-y-2">
+                  <div className={fieldShellClass}>
+                    <span className={fieldLabelClass}>작업</span>
                     <select
-                      value={effectiveLevel}
-                      onChange={(e) => handleLevelChange(e.target.value as SchoolLevel)}
-                      disabled={submitting || isRunning || hasJob}
-                      className="flex-1 min-w-0 px-0 py-0.5 text-sm bg-transparent border-b border-transparent focus:border-primary outline-none cursor-pointer disabled:opacity-70"
+                      value={documentKind}
+                      onChange={(e) => handleMetaChange(withDocumentKind(meta, e.target.value as DocumentKind))}
+                      disabled={disabled}
+                      className={fieldInputClass}
                     >
-                      <option value="고">고등학교</option>
+                      <option value="science_workbook">과학 문제집</option>
+                      <option value="science_exam">과학시험지</option>
+                    </select>
+                  </div>
+                  <div className={fieldShellClass}>
+                    <span className={fieldLabelClass}>학교급</span>
+                    <select
+                      value={effectiveMeta.schoolLevel}
+                      onChange={(e) => handleMetaChange({ ...meta, schoolLevel: e.target.value as SchoolLevel })}
+                      disabled={disabled}
+                      className={fieldInputClass}
+                    >
                       <option value="중">중학교</option>
+                      <option value="고">고등학교</option>
                     </select>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-[10px] w-10 text-muted-foreground font-semibold shrink-0">학년도</span>
+                  <div className={fieldShellClass}>
+                    <span className={fieldLabelClass}>학년</span>
                     <select
-                      value={hasJob ? (v3Meta?.year || meta.year) : meta.year}
-                      onChange={(e) => handleMetaChange({ ...meta, year: Number(e.target.value) })}
-                      disabled={submitting || isRunning || hasJob}
-                      className="flex-1 min-w-0 px-0 py-0.5 text-sm bg-transparent border-b border-transparent focus:border-primary outline-none cursor-pointer disabled:opacity-70"
-                    >
-                      {yearOptions.map((y) => (
-                        <option key={y} value={y}>{y}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-[10px] w-10 text-muted-foreground font-semibold shrink-0">학교</span>
-                    <input
-                      type="text"
-                      value={hasJob ? (v3Meta?.school || "") : meta.school}
-                      onChange={(e) => handleMetaChange({ ...meta, school: e.target.value })}
-                      placeholder={isMiddle ? "OO중학교" : "학교명 입력"}
-                      disabled={submitting || isRunning || hasJob}
-                      className="flex-1 min-w-0 px-0 py-0.5 text-sm bg-transparent border-b border-transparent focus:border-primary outline-none transition-colors placeholder:text-muted-foreground/40 disabled:opacity-70"
-                    />
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-[10px] w-10 text-muted-foreground font-semibold shrink-0">학년</span>
-                    <select
-                      value={hasJob ? (v3Meta?.grade || 2) : meta.grade}
+                      value={effectiveMeta.grade}
                       onChange={(e) => handleMetaChange({ ...meta, grade: Number(e.target.value) })}
-                      disabled={submitting || isRunning || hasJob}
-                      className="flex-1 min-w-0 px-0 py-0.5 text-sm bg-transparent border-b border-transparent focus:border-primary outline-none cursor-pointer disabled:opacity-70"
+                      disabled={disabled}
+                      className={fieldInputClass}
                     >
-                      {[1, 2, 3].map(g => <option key={g} value={g}>{g}학년</option>)}
+                      {[1, 2, 3].map((g) => <option key={g} value={g}>{g}학년</option>)}
+                    </select>
+                  </div>
+                  <div className={fieldShellClass}>
+                    <span className={fieldLabelClass}>과목</span>
+                    <select
+                      value={effectiveMeta.subject}
+                      onChange={(e) => handleMetaChange({ ...meta, subject: e.target.value })}
+                      disabled={disabled}
+                      className={fieldInputClass}
+                    >
+                      {SCIENCE_SUBJECTS.map((subject) => <option key={subject} value={subject}>{subject}</option>)}
+                    </select>
+                  </div>
+                  <div className={fieldShellClass}>
+                    <span className={fieldLabelClass}>교육과정</span>
+                    <select
+                      value={effectiveMeta.curriculum ?? "22개정"}
+                      onChange={(e) => handleMetaChange({ ...meta, curriculum: e.target.value as Curriculum })}
+                      disabled={disabled}
+                      className={fieldInputClass}
+                    >
+                      {CURRICULUM_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
                     </select>
                   </div>
                 </div>
 
-                {/* Row 2: 과목 | 학기 | 시험 | 범위 */}
-                <div className="grid grid-cols-4 gap-x-6 gap-y-2">
-                  <div className="flex items-center gap-3">
-                    <span className="text-[10px] w-10 text-muted-foreground font-semibold shrink-0">과목</span>
-                    <select
-                      value={hasJob ? (v3Meta?.subject || (isMiddle ? MIDDLE_SCHOOL_SUBJECT : "수학 I")) : meta.subject}
-                      onChange={(e) => handleMetaChange({ ...meta, subject: e.target.value })}
-                      disabled={submitting || isRunning || hasJob || isMiddle}
-                      title={isMiddle ? "중학교는 단일 과목(수학)으로 고정됩니다." : undefined}
-                      className="flex-1 min-w-0 px-0 py-0.5 text-sm bg-transparent border-b border-transparent focus:border-primary outline-none cursor-pointer disabled:opacity-70"
-                    >
-                      {subjectOptions.map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-[10px] w-10 text-muted-foreground font-semibold shrink-0">학기</span>
-                    <select
-                      value={hasJob ? (v3Meta?.semester || "1학기") : meta.semester}
-                      onChange={(e) => handleMetaChange({ ...meta, semester: e.target.value })}
-                      disabled={submitting || isRunning || hasJob}
-                      className="flex-1 min-w-0 px-0 py-0.5 text-sm bg-transparent border-b border-transparent focus:border-primary outline-none cursor-pointer disabled:opacity-70"
-                    >
-                      <option value="1학기">1학기</option>
-                      <option value="2학기">2학기</option>
-                    </select>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-[10px] w-10 text-muted-foreground font-semibold shrink-0">시험</span>
-                    <select
-                      value={hasJob ? (v3Meta?.examType || "중간") : meta.examType}
-                      onChange={(e) => handleMetaChange({ ...meta, examType: e.target.value })}
-                      disabled={submitting || isRunning || hasJob}
-                      className="flex-1 min-w-0 px-0 py-0.5 text-sm bg-transparent border-b border-transparent focus:border-primary outline-none cursor-pointer disabled:opacity-70"
-                    >
-                      <option value="중간">중간</option>
-                      <option value="기말">기말</option>
-                      <option value="모의">모의</option>
-                    </select>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-[10px] w-10 text-muted-foreground font-semibold shrink-0">범위</span>
+                <div className="grid grid-cols-4 gap-x-4 gap-y-2">
+                  {isWorkbook ? (
+                    <>
+                      <div className={fieldShellClass}>
+                        <span className={fieldLabelClass}>출판사</span>
+                        <input
+                          type="text"
+                          value={effectiveMeta.publisher ?? ""}
+                          onChange={(e) => handleMetaChange({ ...meta, publisher: e.target.value })}
+                          placeholder="예: 미래엔, 천재"
+                          disabled={disabled}
+                          className={fieldInputClass}
+                        />
+                      </div>
+                      <div className={fieldShellClass}>
+                        <span className={fieldLabelClass}>교재명</span>
+                        <input
+                          type="text"
+                          value={effectiveMeta.bookTitle ?? ""}
+                          onChange={(e) => handleMetaChange({ ...meta, bookTitle: e.target.value })}
+                          placeholder="예: 오투, 체크체크"
+                          disabled={disabled}
+                          className={fieldInputClass}
+                        />
+                      </div>
+                      <div className={fieldShellClass}>
+                        <span className={fieldLabelClass}>유형</span>
+                        <select
+                          value={effectiveMeta.bookType ?? "본문"}
+                          onChange={(e) => handleMetaChange({ ...meta, bookType: e.target.value as WorkbookBookType })}
+                          disabled={disabled}
+                          className={fieldInputClass}
+                        >
+                          {WORKBOOK_TYPES.map((option) => <option key={option} value={option}>{option}</option>)}
+                        </select>
+                      </div>
+                      <div className={fieldShellClass}>
+                        <span className={fieldLabelClass}>버전</span>
+                        <select
+                          value={effectiveMeta.workbookRole ?? "student"}
+                          onChange={(e) => handleMetaChange(withWorkbookRole(meta, e.target.value as WorkbookRole))}
+                          disabled={disabled}
+                          className={fieldInputClass}
+                        >
+                          {WORKBOOK_ROLES.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className={fieldShellClass}>
+                        <span className={fieldLabelClass}>권/학기</span>
+                        <input
+                          type="text"
+                          value={effectiveMeta.bookVolume ?? ""}
+                          onChange={(e) => handleMetaChange({ ...meta, bookVolume: e.target.value, semester: e.target.value })}
+                          placeholder="예: 1학기, 2-1"
+                          disabled={disabled}
+                          className={fieldInputClass}
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className={fieldShellClass}>
+                        <span className={fieldLabelClass}>학년도</span>
+                        <select
+                          value={effectiveMeta.year}
+                          onChange={(e) => handleMetaChange({ ...meta, year: Number(e.target.value) })}
+                          disabled={disabled}
+                          className={fieldInputClass}
+                        >
+                          {yearOptions.map((y) => (
+                            <option key={y} value={y}>{y}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className={fieldShellClass}>
+                        <span className={fieldLabelClass}>학교</span>
+                        <input
+                          type="text"
+                          value={effectiveMeta.school}
+                          onChange={(e) => handleMetaChange({ ...meta, school: e.target.value })}
+                          placeholder={effectiveMeta.schoolLevel === "중" ? "OO중학교" : "OO고등학교"}
+                          disabled={disabled}
+                          className={fieldInputClass}
+                        />
+                      </div>
+                      <div className={fieldShellClass}>
+                        <span className={fieldLabelClass}>학기</span>
+                        <select
+                          value={effectiveMeta.semester}
+                          onChange={(e) => handleMetaChange({ ...meta, semester: e.target.value })}
+                          disabled={disabled}
+                          className={fieldInputClass}
+                        >
+                          <option value="1학기">1학기</option>
+                          <option value="2학기">2학기</option>
+                        </select>
+                      </div>
+                      <div className={fieldShellClass}>
+                        <span className={fieldLabelClass}>시험</span>
+                        <select
+                          value={effectiveMeta.examType}
+                          onChange={(e) => handleMetaChange({ ...meta, examType: e.target.value })}
+                          disabled={disabled}
+                          className={fieldInputClass}
+                        >
+                          <option value="중간">중간</option>
+                          <option value="기말">기말</option>
+                          <option value="모의">모의</option>
+                        </select>
+                      </div>
+                      <div className={fieldShellClass}>
+                        <span className={fieldLabelClass}>범위</span>
+                        <input
+                          type="text"
+                          value={effectiveMeta.range}
+                          onChange={(e) => handleMetaChange({ ...meta, range: e.target.value })}
+                          placeholder="예: 물질의 구성~전기와 자기"
+                          disabled={disabled}
+                          className={fieldInputClass}
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-4 gap-x-4 gap-y-2">
+                  {isWorkbook && (
+                    <>
+                      <div className={fieldShellClass}>
+                        <span className={fieldLabelClass}>범위</span>
+                        <input
+                          type="text"
+                          value={effectiveMeta.range}
+                          onChange={(e) => handleMetaChange({ ...meta, range: e.target.value })}
+                          placeholder="예: 생물의 구성~자극과 반응"
+                          disabled={disabled}
+                          className={fieldInputClass}
+                        />
+                      </div>
+                      <label className="flex items-center gap-1.5 min-w-0 text-[11px] text-muted-foreground font-bold">
+                        <input
+                          type="checkbox"
+                          checked={effectiveMeta.removeProblemIds ?? true}
+                          onChange={(e) => handleMetaChange({ ...meta, removeProblemIds: e.target.checked })}
+                          disabled={disabled}
+                          className="accent-primary w-3.5 h-3.5"
+                        />
+                        고유번호 제외
+                      </label>
+                      <label className="flex items-center gap-1.5 min-w-0 text-[11px] text-muted-foreground font-bold">
+                        <input
+                          type="checkbox"
+                          checked={effectiveMeta.removeImportanceTags ?? true}
+                          onChange={(e) => handleMetaChange({ ...meta, removeImportanceTags: e.target.checked })}
+                          disabled={disabled}
+                          className="accent-primary w-3.5 h-3.5"
+                        />
+                        중요 태그 제외
+                      </label>
+                      <label className="flex items-center gap-1.5 min-w-0 text-[11px] text-muted-foreground font-bold">
+                        <input
+                          type="checkbox"
+                          checked={effectiveMeta.removeQrCodes ?? true}
+                          onChange={(e) => handleMetaChange({ ...meta, removeQrCodes: e.target.checked })}
+                          disabled={disabled}
+                          className="accent-primary w-3.5 h-3.5"
+                        />
+                        QR 제외
+                      </label>
+                      <label className="flex items-center gap-1.5 min-w-0 text-[11px] text-muted-foreground font-bold">
+                        <input
+                          type="checkbox"
+                          checked={effectiveMeta.removePageFooters ?? true}
+                          onChange={(e) => handleMetaChange({ ...meta, removePageFooters: e.target.checked })}
+                          disabled={disabled}
+                          className="accent-primary w-3.5 h-3.5"
+                        />
+                        쪽수 제외
+                      </label>
+                    </>
+                  )}
+                  <label className="flex items-center gap-1.5 min-w-0 text-[11px] text-muted-foreground font-bold">
                     <input
-                      type="text"
-                      value={hasJob ? (v3Meta?.range || "") : meta.range}
-                      onChange={(e) => handleMetaChange({ ...meta, range: e.target.value })}
-                      placeholder={isMiddle ? "예: 정수와 유리수~일차방정식" : "예: 지수~로그"}
-                      disabled={submitting || isRunning || hasJob}
-                      className="flex-1 min-w-0 px-0 py-0.5 text-sm bg-transparent border-b border-transparent focus:border-primary outline-none transition-colors placeholder:text-muted-foreground/40 disabled:opacity-70"
+                      type="checkbox"
+                      checked={effectiveMeta.showProblemMetadata ?? false}
+                      onChange={(e) => handleMetaChange({ ...meta, showProblemMetadata: e.target.checked })}
+                      disabled={disabled}
+                      className="accent-primary w-3.5 h-3.5"
                     />
+                    중단원/난이도 표시
+                  </label>
+                  <div className={cn(fieldShellClass, isWorkbook ? "col-span-1" : "col-span-2")}>
+                    <span className={fieldLabelClass}>그림</span>
+                    <select
+                      value={effectiveMeta.figureMode ?? "original"}
+                      onChange={(e) => handleMetaChange({ ...meta, figureMode: e.target.value as FigureMode })}
+                      disabled={disabled}
+                      className={fieldInputClass}
+                    >
+                      {FIGURE_MODES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
                   </div>
                 </div>
               </div>
@@ -530,10 +748,10 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
         </div>
 
         {/* Partial Separator */}
-        <div className="w-px h-16 bg-border/40 self-center mx-2" />
+        <div className="hidden 2xl:block w-px h-16 bg-border/40 self-center mx-2" />
 
         {/* Section 2: AI Config */}
-        <div className="px-6 py-3 min-w-[160px]">
+        <div className="hidden 2xl:block px-6 py-3 min-w-[160px]">
           <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">AI Provider</div>
           <div className="flex flex-col gap-2">
             {AI_STAGE_KEYS.slice(0, 3).map((stageKey) => {
@@ -552,10 +770,10 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
         </div>
 
         {/* Partial Separator */}
-        <div className="w-px h-16 bg-border/40 self-center mx-2" />
+        <div className="hidden 2xl:block w-px h-16 bg-border/40 self-center mx-2" />
 
         {/* Section 3: Job Status */}
-        <div className="px-6 py-3 min-w-[130px]">
+        <div className="hidden 2xl:block px-6 py-3 min-w-[130px]">
           <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">Status</div>
           <div className="flex items-center gap-2.5">
             <span className={cn("w-2 h-2 rounded-full ring-4 ring-offset-0", 
@@ -664,14 +882,14 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
             <label
               className={cn(
                 "flex items-center gap-2 group",
-                imageProviderMissing ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+                cleaningProviderMissing ? "cursor-not-allowed opacity-60" : "cursor-pointer"
               )}
-              title="추출 전에 nano-banana로 문제 이미지의 손글씨/필기 흔적을 제거합니다. 인쇄된 텍스트·수식·표는 그대로 유지. 체크 해제 시 원본 이미지로 진행."
+              title="추출 전에 문제 이미지의 손글씨/필기 흔적을 제거합니다. 체크 해제 시 원본 이미지로 진행."
             >
               <input
                 type="checkbox"
                 checked={imageCleaningActive}
-                disabled={imageProviderMissing}
+                disabled={cleaningProviderMissing}
                 onChange={(e) => setAiSettings(writeAISettings({
                   ...aiSettings,
                   imageCleaningEnabled: e.target.checked,
@@ -679,19 +897,27 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
                 className="accent-primary w-3.5 h-3.5"
               />
               <span className="text-[11px] text-muted-foreground group-hover:text-foreground transition-colors font-bold tracking-tight">
-                이미지 정리 <span className="font-normal opacity-70">
-                  (손글씨 제거, {aiSettings.imageProvider === "codex-cli" ? "Codex CLI ImageGen" : "Gemini API"} 사용)
+                손글씨 제거 <span className="font-normal opacity-70">
+                  ({aiSettings.imageCleaningProvider === "codex-cli" ? "ChatGPT 이미지2" : "Gemini API"})
                 </span>
               </span>
             </label>
-            {imageProviderMissing && (
+            {cleaningProviderMissing && (
               <a
                 href="/settings"
                 className="ml-[1.375rem] text-[10px] text-destructive/80 hover:text-destructive hover:underline"
               >
-                {aiSettings.imageProvider === "codex-cli"
+                {aiSettings.imageCleaningProvider === "codex-cli"
                   ? "Codex CLI 설치·로그인이 필요합니다 — 설정에서 확인"
                   : "Gemini API 키가 필요합니다 — 설정에서 입력"}
+              </a>
+            )}
+            {figureProviderMissing && (
+              <a
+                href="/settings"
+                className="ml-[1.375rem] text-[10px] text-destructive/80 hover:text-destructive hover:underline"
+              >
+                ChatGPT 이미지2 그림 처리를 쓰려면 Codex CLI 설치·로그인이 필요합니다
               </a>
             )}
             <div className="flex items-center gap-3">
@@ -793,14 +1019,6 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
             )}
           </div>
 
-          {!hasJob && !isMetaComplete && (
-             <div className="p-5 bg-amber-500/[0.03] border-t border-amber-500/10">
-               <div className="p-3 rounded-xl border border-amber-500/20 bg-card text-[11px] text-amber-700 leading-normal flex gap-2.5 shadow-sm">
-                  <svg className="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                  <span>모든 필수 설정을 완료해야<br/>추출을 시작할 수 있습니다.</span>
-               </div>
-             </div>
-          )}
         </div>
 
         {/* Right Workspace: The Interactive Area */}

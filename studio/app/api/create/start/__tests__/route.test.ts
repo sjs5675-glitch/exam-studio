@@ -105,12 +105,15 @@ async function buildHandler(
   }
 ) {
   const { mkdir, rm: fsRm, rename: fsRename, writeFile, stat } = await import("fs/promises");
+  const { getActiveImageCleanerLock, imageCleanerLockPath } = await import("@/lib/server/imageCleanerLock");
   const rename = overrides?.rename ?? fsRename;
   const rm = overrides?.rm ?? fsRm;
 
   const CACHE_DIR = path.join(examDir, ".v3cache");
   const IMAGES_DIR = path.join(examDir, "question_images");
   const OUTPUTS_IMAGES_DIR = outputsImagesDir;
+  const CLEANING_STATUS_PATH = path.join(CACHE_DIR, "cleaning_status.json");
+  const IMAGE_CLEANER_LOCK_PATH = imageCleanerLockPath(CLEANING_STATUS_PATH);
   const LOCK_PATH = path.join(examDir, ".create_start.lock");
 
   async function exists(p: string): Promise<boolean> {
@@ -120,6 +123,11 @@ async function buildHandler(
     } catch {
       return false;
     }
+  }
+
+  function isTransientFsBusyError(err: unknown): boolean {
+    const code = (err as NodeJS.ErrnoException | undefined)?.code;
+    return code === "EPERM" || code === "EACCES" || code === "EBUSY" || code === "ENOTEMPTY";
   }
 
   // Inline the route logic with overridden paths (mirrors route.ts exactly)
@@ -147,6 +155,18 @@ async function buildHandler(
       return NextResponse.json(
         { error: `request 파싱 실패: ${err instanceof Error ? err.message : String(err)}` },
         { status: 400 }
+      );
+    }
+
+    const activeCleaner = await getActiveImageCleanerLock(IMAGE_CLEANER_LOCK_PATH);
+    if (activeCleaner) {
+      return NextResponse.json(
+        {
+          error: "이전 이미지 정리/손글씨 제거 작업이 아직 실행 중입니다.",
+          hint: "이전 손글씨 제거/이미지 생성 작업이 question_images 폴더를 아직 사용 중입니다.",
+          code: "image_cleaner_busy",
+        },
+        { status: 409 }
       );
     }
 
@@ -247,8 +267,18 @@ async function buildHandler(
         await rm(nextImagesDir, { recursive: true, force: true });
         await rm(LOCK_PATH, { force: true }).catch(() => {});
       } catch { /* best effort */ }
+      if (isTransientFsBusyError(err)) {
+        return NextResponse.json(
+          {
+            error: `작업 시작 보류: 입력 이미지 폴더가 다른 프로세스에서 사용 중입니다. (${err instanceof Error ? err.message : String(err)})`,
+            hint: "이전 손글씨 제거/이미지 생성 작업이 question_images 폴더를 아직 사용 중입니다.",
+            code: "input_dir_busy",
+          },
+          { status: 409 }
+        );
+      }
       return NextResponse.json(
-        { error: `작업 시작 commit 실패: ${err instanceof Error ? err.message : String(err)}` },
+        { error: `작업 시작 commit 실패: ${err instanceof Error ? err.message : String(err)}`, code: "commit_failed" },
         { status: 500 }
       );
     }
@@ -256,7 +286,7 @@ async function buildHandler(
     return NextResponse.json({ ok: true, images: saved });
   }
 
-  return { POST, CACHE_DIR, IMAGES_DIR, OUTPUTS_IMAGES_DIR, LOCK_PATH };
+  return { POST, CACHE_DIR, IMAGES_DIR, OUTPUTS_IMAGES_DIR, LOCK_PATH, IMAGE_CLEANER_LOCK_PATH };
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -393,6 +423,34 @@ describe("POST /api/create/start", () => {
     expect(res.status).toBe(400);
     const body = await res.json() as { error: string };
     expect(body.error).toContain("이미지");
+  });
+
+  it("이미지 정리 lock이 살아있으면 새 작업 시작을 409로 보류", async () => {
+    const { POST, IMAGE_CLEANER_LOCK_PATH } = await buildHandler(examDir, outputsImagesDir);
+    await mkdir(path.dirname(IMAGE_CLEANER_LOCK_PATH), { recursive: true });
+    await writeFile(
+      IMAGE_CLEANER_LOCK_PATH,
+      JSON.stringify({
+        token: "cleaning",
+        pid: process.pid,
+        startedAt: new Date().toISOString(),
+        questionImagesDir: path.join(examDir, "question_images"),
+        statusOutPath: path.join(examDir, ".v3cache", "cleaning_status.json"),
+        clean: true,
+      }),
+      "utf-8"
+    );
+
+    const req = makeRequest({ school: "학교" }, [
+      { key: "q01", name: "q01.png", data: pngBuffer() },
+    ]);
+
+    const res = await POST(req);
+    const body = await res.json() as { code?: string; hint?: string };
+
+    expect(res.status).toBe(409);
+    expect(body.code).toBe("image_cleaner_busy");
+    expect(body.hint).toContain("question_images");
   });
 
   it("write 단계 실패 시 final path untouched (기존 .v3cache 그대로)", async () => {
@@ -580,6 +638,41 @@ describe("POST /api/create/start", () => {
     // lock 파일도 정리됐는지 확인
     const lockPath = path.join(examDir, ".create_start.lock");
     expect(await fileExists(lockPath)).toBe(false);
+  });
+
+  it("question_images rename이 Windows 잠금 오류면 409와 재시도 힌트를 반환", async () => {
+    const existingCacheDir = path.join(examDir, ".v3cache");
+    const existingImagesDir = path.join(examDir, "question_images");
+    await mkdir(existingCacheDir, { recursive: true });
+    await writeFile(path.join(existingCacheDir, "sentinel.txt"), "original cache", "utf-8");
+    await mkdir(existingImagesDir, { recursive: true });
+    await writeFile(path.join(existingImagesDir, "q01.png"), "original image", "utf-8");
+
+    const { rename: realRename } = await import("fs/promises");
+    let renameCallCount = 0;
+    const busyRename = async (oldPath: string, newPath: string): Promise<void> => {
+      renameCallCount++;
+      if (renameCallCount === 2) {
+        const err = new Error("simulated EPERM") as NodeJS.ErrnoException;
+        err.code = "EPERM";
+        throw err;
+      }
+      return realRename(oldPath, newPath);
+    };
+
+    const { POST, CACHE_DIR, IMAGES_DIR } = await buildHandler(examDir, outputsImagesDir, { rename: busyRename });
+    const req = makeRequest({ school: "새학교" }, [
+      { key: "q01", name: "q01.png", data: pngBuffer() },
+    ]);
+
+    const res = await POST(req);
+    const body = await res.json() as { code?: string; hint?: string };
+
+    expect(res.status).toBe(409);
+    expect(body.code).toBe("input_dir_busy");
+    expect(body.hint).toContain("question_images");
+    expect(await fileExists(path.join(CACHE_DIR, "sentinel.txt"))).toBe(true);
+    expect(await fileExists(path.join(IMAGES_DIR, "q01.png"))).toBe(true);
   });
 
   it("commit 4번째 rename 실패 시 새 cache를 제거하고 기존 cache/images를 모두 복원", async () => {

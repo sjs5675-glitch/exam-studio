@@ -25,6 +25,7 @@ export const DEFAULT_AI_SETTINGS: AISettings = {
   defaultProvider: "codex-cli",
   stageOverrides: {},
   imageProvider: "codex-cli",
+  imageCleaningProvider: "codex-cli",
   figureRegen: true,
   imageCleaningEnabled: true,
   checkerMaxAttempts: 2,
@@ -35,9 +36,11 @@ export const DEFAULT_AI_SETTINGS: AISettings = {
 export interface AISettings {
   defaultProvider: SelectableProviderId;
   stageOverrides: StageOverrideMap;
-  /** 그림/이미지 정리 단계에서 사용할 이미지 생성 provider. */
+  /** figure 재생성 단계에서 사용할 이미지 생성 provider. */
   imageProvider: ImageProviderId;
-  /** Gemini(nano-banana)로 그림을 재생성할지 여부. false면 crop만. */
+  /** 손글씨 제거/문제 이미지 정리 단계에서 사용할 이미지 생성 provider. */
+  imageCleaningProvider: ImageProviderId;
+  /** 이미지 provider로 그림을 재생성할지 여부. false면 crop만. */
   figureRegen: boolean;
   /** nano-banana로 문제 이미지의 손글씨/필기 흔적을 정리할지 여부. false면 원본 그대로 사용. */
   imageCleaningEnabled: boolean;
@@ -197,6 +200,7 @@ export function readAISettings(storage = getBrowserStorage()): AISettings {
       defaultProvider: normalizeSelectableProviderId(parsed.defaultProvider),
       stageOverrides: normalizeStageOverrides(parsed.stageOverrides),
       imageProvider: normalizeImageProviderId(parsed.imageProvider),
+      imageCleaningProvider: normalizeImageProviderId(parsed.imageCleaningProvider ?? parsed.imageProvider),
       figureRegen: parsed.figureRegen !== false,
       imageCleaningEnabled: parsed.imageCleaningEnabled !== false,
       checkerMaxAttempts: normalizeCheckerMaxAttempts(parsed.checkerMaxAttempts),
@@ -222,6 +226,7 @@ export function writeAISettings(settings: AISettings, storage = getBrowserStorag
     defaultProvider: normalizeSelectableProviderId(settings.defaultProvider),
     stageOverrides: normalizeStageOverrides(settings.stageOverrides),
     imageProvider: normalizeImageProviderId(settings.imageProvider),
+    imageCleaningProvider: normalizeImageProviderId(settings.imageCleaningProvider),
     figureRegen: settings.figureRegen !== false,
     imageCleaningEnabled: settings.imageCleaningEnabled !== false,
     checkerMaxAttempts: normalizeCheckerMaxAttempts(settings.checkerMaxAttempts),

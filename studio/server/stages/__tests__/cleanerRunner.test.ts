@@ -7,7 +7,7 @@
  *  3. spawn failure → status=failed
  */
 
-import { mkdtemp, rm, writeFile } from "fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "fs/promises";
 import os from "os";
 import path from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -19,6 +19,7 @@ vi.mock("../commands", () => ({
 
 import { runCleanerStage } from "../cleanerRunner";
 import * as commandsModule from "../commands";
+import { imageCleanerLockPath } from "@/lib/server/imageCleanerLock";
 
 const runStageCommandMock = commandsModule.runStageCommand as Mock;
 
@@ -227,5 +228,63 @@ describe("runCleanerStage — spawn failure", () => {
     });
 
     expect(result.status).toBe("failed");
+  });
+});
+
+describe("runCleanerStage — lock", () => {
+  it("creates a lock during cleaning and removes it after completion", async () => {
+    const dir = await makeTempDir();
+    const statusOutPath = path.join(dir, "cleaning_status.json");
+    const lockPath = imageCleanerLockPath(statusOutPath);
+
+    runStageCommandMock.mockImplementation(async () => {
+      const raw = await readFile(lockPath, "utf8");
+      expect(JSON.parse(raw)).toMatchObject({
+        questionImagesDir: path.join(dir, "question_images"),
+        statusOutPath,
+        clean: true,
+      });
+      await writeFile(statusOutPath, JSON.stringify(DONE_FIXTURE), "utf8");
+      return { status: "success", stdout: "", stderr: "", exitCode: 0, signal: null, elapsedMs: 1 };
+    });
+
+    const result = await runCleanerStage({
+      questionImagesDir: path.join(dir, "question_images"),
+      statusOutPath,
+      clean: true,
+      baseDir: dir,
+    });
+
+    expect(result.status).toBe("done");
+    await expect(stat(lockPath)).rejects.toThrow();
+  });
+
+  it("returns busy when another cleaner lock is active", async () => {
+    const dir = await makeTempDir();
+    const statusOutPath = path.join(dir, "cleaning_status.json");
+    const lockPath = imageCleanerLockPath(statusOutPath);
+    await writeFile(
+      lockPath,
+      JSON.stringify({
+        token: "existing",
+        pid: process.pid,
+        startedAt: new Date().toISOString(),
+        questionImagesDir: path.join(dir, "question_images"),
+        statusOutPath,
+        clean: true,
+      }),
+      "utf8"
+    );
+
+    const result = await runCleanerStage({
+      questionImagesDir: path.join(dir, "question_images"),
+      statusOutPath,
+      clean: true,
+      baseDir: dir,
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.reason).toBe("busy");
+    expect(runStageCommandMock).not.toHaveBeenCalled();
   });
 });

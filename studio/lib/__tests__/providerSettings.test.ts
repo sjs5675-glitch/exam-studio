@@ -53,10 +53,11 @@ describe("AI settings storage", () => {
 
   it("writes normalized settings", () => {
     const storage = createStorage();
-    expect(writeAISettings({ defaultProvider: "claude-cli", stageOverrides: {}, imageProvider: "codex-cli", figureRegen: true, imageCleaningEnabled: true, checkerMaxAttempts: 2, verifierMaxAttempts: 3, stageSkip: {} }, storage)).toEqual({
+    expect(writeAISettings({ defaultProvider: "claude-cli", stageOverrides: {}, imageProvider: "codex-cli", imageCleaningProvider: "gemini", figureRegen: true, imageCleaningEnabled: true, checkerMaxAttempts: 2, verifierMaxAttempts: 3, stageSkip: {} }, storage)).toEqual({
       defaultProvider: "claude-cli",
       stageOverrides: {},
       imageProvider: "codex-cli",
+      imageCleaningProvider: "gemini",
       figureRegen: true,
       imageCleaningEnabled: true,
       checkerMaxAttempts: 2,
@@ -73,9 +74,20 @@ describe("AI settings storage", () => {
 
     const valid = createStorage(JSON.stringify({ imageProvider: "gemini" }));
     expect(readAISettings(valid).imageProvider).toBe("gemini");
+    expect(readAISettings(valid).imageCleaningProvider).toBe("gemini");
 
     const invalid = createStorage(JSON.stringify({ imageProvider: "unknown" }));
     expect(readAISettings(invalid).imageProvider).toBe("codex-cli");
+    expect(readAISettings(invalid).imageCleaningProvider).toBe("codex-cli");
+  });
+
+  it("can store a separate handwriting-cleanup image provider", () => {
+    const storage = createStorage(JSON.stringify({
+      imageProvider: "codex-cli",
+      imageCleaningProvider: "gemini",
+    }));
+    expect(readAISettings(storage).imageProvider).toBe("codex-cli");
+    expect(readAISettings(storage).imageCleaningProvider).toBe("gemini");
   });
 
   it("exposes auto, claude-cli, claude-sdk, codex-cli, openai-sdk as selectable providers", () => {
@@ -143,6 +155,7 @@ describe("AI settings storage", () => {
         "create.verifier": "deepseek-v4",
       },
       imageProvider: "gemini",
+      imageCleaningProvider: "codex-cli",
       figureRegen: true,
       imageCleaningEnabled: true,
       checkerMaxAttempts: 2,
@@ -156,6 +169,7 @@ describe("AI settings storage", () => {
         "create.verifier": "deepseek-v4",
       },
       imageProvider: "gemini",
+      imageCleaningProvider: "codex-cli",
       figureRegen: true,
       imageCleaningEnabled: true,
       checkerMaxAttempts: 2,
@@ -204,6 +218,7 @@ describe("AI settings storage", () => {
       defaultProvider: "auto",
       stageOverrides: {},
       imageProvider: "gemini",
+      imageCleaningProvider: "gemini",
       figureRegen: true,
       // checkerMaxAttempts missing
     }));
@@ -211,6 +226,7 @@ describe("AI settings storage", () => {
       defaultProvider: "auto",
       stageOverrides: {},
       imageProvider: "gemini",
+      imageCleaningProvider: "gemini",
       figureRegen: true,
       imageCleaningEnabled: true,
       checkerMaxAttempts: 2,

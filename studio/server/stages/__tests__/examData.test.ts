@@ -258,21 +258,24 @@ describe("buildExamDataJson — merge contract (A안: verifier = gating only)", 
 // ──────────────────────────────────────────────
 
 describe("buildExamDataJson — assertCompleteMeta + camelCase only info", () => {
-  it("throws when meta is incomplete (missing required fields)", async () => {
+  it("normalizes sparse meta instead of blocking the build", async () => {
     const base = await makeTempDir();
     const cache = await makeCache(base);
 
     await writeFile(cache.extractorResultPath(1), JSON.stringify(makeExtracted(1)), "utf8");
     await writeFile(cache.solverResultPath(1), JSON.stringify(makeSolved(1)), "utf8");
 
-    // schoolLevel/grade/subject/semester/examType/range all missing
-    await expect(
-      buildExamDataJson({
-        cache,
-        meta: { school: "학교", year: 2025 },
-        questionNumbers: [1],
-      })
-    ).rejects.toThrow(/meta missing required fields/);
+    const result = await buildExamDataJson({
+      cache,
+      meta: { school: "학교", year: 2025 },
+      questionNumbers: [1],
+    });
+
+    expect(result.info.school).toBe("학교");
+    expect(result.info.year).toBe(2025);
+    expect(result.info.schoolLevel).toBe("중");
+    expect(result.info.subject).toBe("중등과학");
+    expect(result.info.filenameBase).toBeDefined();
   });
 
   it("info is camelCase only — snake_case keys must not be present", async () => {

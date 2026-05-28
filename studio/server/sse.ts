@@ -10,7 +10,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 // Import from relative paths (tsx doesn't support @/ alias)
-import type { ExamMetaInput } from "../lib/exam/meta";
+import type { ExamMetaInput, FigureMode } from "../lib/exam/meta";
 import { transformToSSE, type SSEEvent } from "../lib/claude";
 import {
   normalizeProviderId,
@@ -294,7 +294,9 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     provider?: AIProviderId;
     stageOverrides?: Partial<Record<AIStageKey, AIProviderId>>;
     imageProvider?: ImageProviderId;
+    imageCleaningProvider?: ImageProviderId;
     figureRegen?: boolean;
+    figureMode?: FigureMode;
     imageCleaningEnabled?: boolean;
     checkerMaxAttempts?: number;
     verifierMaxAttempts?: number;
@@ -314,6 +316,9 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   let stageOverrides: StageOverrideMap;
   let stageSkip: StageSkipMap;
   const imageProvider = isImageProviderId(body.imageProvider) ? body.imageProvider : "gemini";
+  const imageCleaningProvider = isImageProviderId(body.imageCleaningProvider)
+    ? body.imageCleaningProvider
+    : imageProvider;
   let primaryStageKey: AIStageKey | undefined;
   try {
     requestedProvider = normalizeProviderId(body.provider);
@@ -408,7 +413,9 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     provider: resolvedProvider,
     stageOverrides,
     imageProvider,
+    imageCleaningProvider,
     figureRegen: body.figureRegen,
+    figureMode: body.figureMode,
     imageCleaningEnabled: body.imageCleaningEnabled,
     checkerMaxAttempts: body.checkerMaxAttempts ?? 2,
     verifierMaxAttempts: body.verifierMaxAttempts ?? 3,
@@ -482,7 +489,9 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
         stageOverrides,
         stageSkip,
         imageProvider,
+        imageCleaningProvider,
         figureRegen: body.figureRegen,
+        figureMode: body.figureMode,
         imageCleaningEnabled: body.imageCleaningEnabled,
         checkerMaxAttempts: body.checkerMaxAttempts,
         verifierMaxAttempts: body.verifierMaxAttempts,
@@ -542,6 +551,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
         requestedProvider,
         provider: resolvedProvider,
         imageProvider,
+        imageCleaningProvider,
         providerTelemetry,
         status: finalStatus,
         finishedAt: new Date().toISOString(),

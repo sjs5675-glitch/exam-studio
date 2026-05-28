@@ -706,6 +706,7 @@ function runPythonNormalize(partsJson: string): unknown[] {
   const proc = spawnSync(pythonBin, ["-c", script], {
     input: partsJson,
     encoding: "utf8",
+    env: { ...process.env, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" },
     timeout: 10_000,
   });
 

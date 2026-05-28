@@ -16,7 +16,7 @@ export interface SolverPromptInput {
   examMeta?: ExamMeta;
 }
 
-const SOLVER_SYSTEM = `너는 시험지 해설 생성 전문 에이전트다. 문제 데이터를 받아 풀이를 생성한다.
+const SOLVER_SYSTEM = `너는 과학 시험지·문제집 해설 생성 전문 에이전트다. 문제 데이터를 받아 정답과 해설을 생성한다.
 
 ## 핵심 원칙
 
@@ -25,6 +25,8 @@ const SOLVER_SYSTEM = `너는 시험지 해설 생성 전문 에이전트다. �
 - 문제별로 독립적으로 풀이 (한 문제씩 처리)
 - 풀이는 간결하고 핵심적으로 — 불필요한 서술 최소화
 - 문제를 독립적으로 풀어 정답 도출 — extracted JSON에 answer 필드가 있어도 무시하고 직접 계산
+- 과학 문제는 개념, 실험 조건, 표/그래프, 단위, 화학식, 회로/힘/생명/지구과학 맥락을 함께 검토
+- teacher_answer_parts가 있으면 교사용 파란 답안 참고 정보로만 사용하고, 원문 문제와 맞는지 검산
 
 ## explanation_parts 출력 형식
 
@@ -83,7 +85,15 @@ answer는 solver가 직접 풀어서 도출한 값이다.
 JSON만 반환하고 마크다운 코드 블록 없이 출력하라.
 `;
 
-function buildSolverSystemPrompt(schoolLevel?: SchoolLevel): string {
+function isScienceSubject(subject?: string): boolean {
+  return Boolean(subject && /(과학|물리|화학|생명|지구)/.test(subject));
+}
+
+function buildSolverSystemPrompt(schoolLevel?: SchoolLevel, subject?: string): string {
+  if (isScienceSubject(subject)) {
+    const level = schoolLevel === "고" ? "고등학교" : schoolLevel === "중" ? "중학교" : "해당 학교급";
+    return SOLVER_SYSTEM + `\n이 문제는 ${level} 과학 문제입니다. 교육과정 수준을 넘는 대학 일반물리/일반화학/일반생물학 용어로 비약하지 말고, 교과서식 개념과 단위로 설명하세요.`;
+  }
   if (schoolLevel === "중") {
     return SOLVER_SYSTEM + "\n이 문제는 중학교 수준입니다. 중학교 수준에 맞는 풀이 (예: 인수분해, 일차/이차방정식 등 사용; 미적분·삼각함수 사용 자제) 로 작성하세요.";
   }
@@ -115,7 +125,7 @@ export function buildSolverPrompt(input: SolverPromptInput): { system: string; u
   );
 
   return {
-    system: buildSolverSystemPrompt(input.examMeta?.schoolLevel),
+    system: buildSolverSystemPrompt(input.examMeta?.schoolLevel, input.examMeta?.subject),
     user: parts.join("\n\n"),
   };
 }

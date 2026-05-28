@@ -6,12 +6,18 @@ import { preflightProviders } from "@/lib/ai/preflight";
 import { normalizeStageOverrides } from "@/lib/ai/settings";
 import type { AIProviderId } from "@/lib/ai/types";
 import { getDataRoot } from "@/lib/server/paths";
+import {
+  getActiveImageCleanerLock,
+  imageCleanerLockPath,
+} from "@/lib/server/imageCleanerLock";
 
 const BASE_DIR = getDataRoot();
 const EXAM_DIR = path.join(BASE_DIR, "inputs", "시험지 제작");
 const CACHE_DIR = path.join(EXAM_DIR, ".v3cache");
 const IMAGES_DIR = path.join(EXAM_DIR, "question_images");
 const OUTPUTS_IMAGES_DIR = path.join(BASE_DIR, "outputs", "images");
+const CLEANING_STATUS_PATH = path.join(CACHE_DIR, "cleaning_status.json");
+const IMAGE_CLEANER_LOCK_PATH = imageCleanerLockPath(CLEANING_STATUS_PATH);
 export const LOCK_PATH = path.join(EXAM_DIR, ".create_start.lock");
 
 
@@ -47,6 +53,18 @@ async function renameWithRetry(from: string, to: string, attempts = 6): Promise<
     }
   }
 }
+
+function isTransientFsBusyError(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException | undefined)?.code;
+  return code === "EPERM" || code === "EACCES" || code === "EBUSY" || code === "ENOTEMPTY";
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+const BUSY_HINT =
+  "이전 손글씨 제거/이미지 생성 작업이 question_images 폴더를 아직 사용 중입니다. 현재 작업이 끝나거나 중단된 뒤 다시 시도하세요. 교사용 문제집은 이미지 정리(손글씨 제거)를 끄고 진행하는 것을 권장합니다.";
 
 /**
  * 신규 시험지 작업 시작 — 단일 트랜잭션:
@@ -114,6 +132,18 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+  }
+
+  const activeCleaner = await getActiveImageCleanerLock(IMAGE_CLEANER_LOCK_PATH);
+  if (activeCleaner) {
+    return NextResponse.json(
+      {
+        error: "이전 이미지 정리/손글씨 제거 작업이 아직 실행 중입니다.",
+        hint: BUSY_HINT,
+        code: "image_cleaner_busy",
+      },
+      { status: 409 }
+    );
   }
 
   // ── stage 2: write fresh state into temp dirs (final path untouched) ──
@@ -239,8 +269,19 @@ export async function POST(req: NextRequest) {
     } catch {
       /* recovery best effort */
     }
+    if (isTransientFsBusyError(err)) {
+      return NextResponse.json(
+        {
+          error: `작업 시작 보류: 입력 이미지 폴더가 다른 프로세스에서 사용 중입니다. (${errorMessage(err)})`,
+          hint: BUSY_HINT,
+          code: "input_dir_busy",
+        },
+        { status: 409 }
+      );
+    }
+
     return NextResponse.json(
-      { error: `작업 시작 commit 실패: ${err instanceof Error ? err.message : String(err)}` },
+      { error: `작업 시작 commit 실패: ${errorMessage(err)}`, code: "commit_failed" },
       { status: 500 }
     );
   }

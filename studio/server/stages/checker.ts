@@ -123,6 +123,8 @@ export interface CheckerStageInput {
   sectionXml?: string;
   /** School level for vocabulary rule; drives which classification JSON is used. */
   schoolLevel?: SchoolLevel;
+  /** Subject for domain-specific vocabulary rules. Science currently skips math unit classification. */
+  subject?: string;
 }
 
 export interface CheckerStageOutput {
@@ -146,7 +148,7 @@ interface SectionSource {
 // ──────────────────────────────────────────────
 
 interface RuleHandler {
-  detect: (xml: string, file: string, context?: { schoolLevel?: SchoolLevel }) => CheckerIssue[];
+  detect: (xml: string, file: string, context?: { schoolLevel?: SchoolLevel; subject?: string }) => CheckerIssue[];
   /**
    * Optional deterministic XML-level fix.
    * When present, `runCheckerWithAutoFix` will apply this before triggering a
@@ -187,7 +189,7 @@ export async function runCheckerStage(input: CheckerStageInput): Promise<StageRe
     await loadUnitClassification();
     await loadUnitClassificationMiddle();
     const source = await loadSectionSource(input);
-    const context = { schoolLevel: input.schoolLevel };
+    const context = { schoolLevel: input.schoolLevel, subject: input.subject };
     const issues = runDeterministicCheckerRules(source.xml, source.file, context);
     const fallbackReasons = issues
       .filter((issue) => issue.fallbackRequired)
@@ -232,7 +234,7 @@ export async function runCheckerStage(input: CheckerStageInput): Promise<StageRe
 export function runDeterministicCheckerRules(
   sectionXml: string,
   file = "Contents/section0.xml",
-  context?: { schoolLevel?: SchoolLevel },
+  context?: { schoolLevel?: SchoolLevel; subject?: string },
 ): CheckerIssue[] {
   const issues: CheckerIssue[] = [];
   for (const handler of Object.values(RULES)) {
@@ -282,7 +284,7 @@ export async function runCheckerWithAutoFix(
 
   let xml = source.xml;
   let autofixed = false;
-  const context = { schoolLevel: input.schoolLevel };
+  const context = { schoolLevel: input.schoolLevel, subject: input.subject };
 
   function buildResult(issues: CheckerIssue[]): CheckerAutoFixResult {
     const ok = issues.every((i) => i.severity !== "error");
@@ -709,7 +711,13 @@ function checkSectionStyleFormat(xml: string, file: string): CheckerIssue[] {
  *   undefined → union of both (관대 기본값, backward-compatible)
  * Returns empty array if no classification is loaded.
  */
-function checkTextVocabularySync(xml: string, file: string, context?: { schoolLevel?: SchoolLevel }): CheckerIssue[] {
+function isScienceSubject(subject?: string): boolean {
+  return Boolean(subject && /(과학|물리|화학|생명|지구)/.test(subject));
+}
+
+function checkTextVocabularySync(xml: string, file: string, context?: { schoolLevel?: SchoolLevel; subject?: string }): CheckerIssue[] {
+  if (isScienceSubject(context?.subject)) return [];
+
   const high = _unitClassificationCache || null;
   const middle = _unitClassificationMiddleCache || null;
 

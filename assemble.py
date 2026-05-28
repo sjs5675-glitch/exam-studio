@@ -71,6 +71,11 @@ def make_tab3():
             '<hp:tab width="4000" leader="0" type="1"/>')
 
 
+def make_bogi_choice_gap():
+    """Compact gap for ㄱㄴㄷ answer-combination choices."""
+    return '<hp:t>        </hp:t>'
+
+
 def is_short_choice(choices):
     """Check if choices are short (equation only, no text)"""
     if choices is None:
@@ -82,21 +87,22 @@ def is_short_choice(choices):
     return True
 
 
-def make_choices_xml(choices):
+def make_choices_xml(choices, force_compact=False):
     """Generate choice paragraphs"""
     if not choices:
         return ""
 
     paragraphs = []
+    compact_gap = make_bogi_choice_gap() if force_compact else f'<hp:t>{make_tab3()}</hp:t>'
 
-    if is_short_choice(choices):
+    if force_compact or is_short_choice(choices):
         # 3+2 pattern with tabs
         # Line 1: ①②③
         line1_content = ""
         max_eq_params1 = (1000, 1000, 850, 600)
         for i in range(min(3, len(choices))):
             if i > 0:
-                line1_content += f'<hp:t>{make_tab3()}</hp:t>'
+                line1_content += compact_gap
             sym = CHOICE_SYMBOLS[i]
             line1_content += f'<hp:t>{sym} </hp:t>'
             for part in choices[i]:
@@ -120,7 +126,7 @@ def make_choices_xml(choices):
             max_eq_params2 = (1000, 1000, 850, 600)
             for i in range(3, len(choices)):
                 if i > 3:
-                    line2_content += f'<hp:t>{make_tab3()}</hp:t>'
+                    line2_content += compact_gap
                 sym = CHOICE_SYMBOLS[i]
                 line2_content += f'<hp:t>{sym} </hp:t>'
                 for part in choices[i]:
@@ -370,16 +376,6 @@ def main(exam_json=None, output_dir=None, base_path=None):
                 text = part["t"].replace("\n", " ")
                 prob_content += f'<hp:t>{xml_escape(text)}</hp:t>'
 
-        score_val = prob.get("score")
-        if score_val is not None:
-            all_texts = " ".join(p.get("t", "") for p in parts)
-            has_score_in_parts = "점]" in all_texts or "점수" in all_texts
-            if not has_score_in_parts:
-                score_script = str(score_val)
-                prob_content += f'<hp:t>[</hp:t>'
-                prob_content += make_equation_xml(score_script)
-                prob_content += f'<hp:t>점]</hp:t>'
-
         prob_p = (f'<hp:p id="2147483648" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">'
                   f'<hp:run charPrIDRef="1">{prob_content}</hp:run>'
                   f'{make_lineseg(0, max_eq_params[0], max_eq_params[1], max_eq_params[2], max_eq_params[3])}'
@@ -464,25 +460,27 @@ def main(exam_json=None, output_dir=None, base_path=None):
 
         # Choices
         if ptype == "choice" and choices:
-            choices_xml = make_choices_xml(choices)
+            force_compact_choices = bool(condition_box and condition_box.get("type") == "bogi")
+            choices_xml = make_choices_xml(choices, force_compact=force_compact_choices)
             problem_paras.append(choices_xml)
 
         # Meta tags
-        topic_name = get_subtopic_name(prob.get("subtopic", ""))
-        meta_topic = make_paragraph(
-            content=f'<hp:t>[중단원] {xml_escape(topic_name)}</hp:t>',
-            charPrIDRef="2",
-            vertsize=1000, textheight=1000, baseline=850, spacing=600
-        )
-        problem_paras.append(meta_topic)
+        if info.get("showProblemMetadata", True):
+            topic_name = get_subtopic_name(prob.get("subtopic", ""))
+            meta_topic = make_paragraph(
+                content=f'<hp:t>[중단원] {xml_escape(topic_name)}</hp:t>',
+                charPrIDRef="2",
+                vertsize=1000, textheight=1000, baseline=850, spacing=600
+            )
+            problem_paras.append(meta_topic)
 
-        difficulty = prob.get("difficulty", "중")
-        meta_diff = make_paragraph(
-            content=f'<hp:t>[난이도] {xml_escape(difficulty)}</hp:t>',
-            charPrIDRef="2",
-            vertsize=1000, textheight=1000, baseline=850, spacing=600
-        )
-        problem_paras.append(meta_diff)
+            difficulty = prob.get("difficulty", "중")
+            meta_diff = make_paragraph(
+                content=f'<hp:t>[난이도] {xml_escape(difficulty)}</hp:t>',
+                charPrIDRef="2",
+                vertsize=1000, textheight=1000, baseline=850, spacing=600
+            )
+            problem_paras.append(meta_diff)
 
         problem_count += 1
 

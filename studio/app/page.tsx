@@ -55,9 +55,9 @@ export default function DashboardPage() {
         <Link href="/create">
           <Card className="hover:border-primary/40 transition-colors cursor-pointer h-full">
             <CardHeader>
-              <CardTitle className="text-lg">시험지 제작</CardTitle>
+              <CardTitle className="text-lg">과학 자료 타이핑</CardTitle>
               <CardDescription>
-                PDF + 양식 HWPX를 업로드하여 시험지를 제작합니다.
+                과학 시험지와 학생용·교사용 문제집을 타이핑합니다.
               </CardDescription>
             </CardHeader>
           </Card>

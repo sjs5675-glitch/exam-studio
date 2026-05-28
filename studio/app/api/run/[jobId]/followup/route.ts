@@ -10,6 +10,7 @@ import { normalizeProviderId, type AIProviderId } from "@/lib/ai";
 import { createStageCache } from "@/server/stages/cache";
 import { cleanupFromStage } from "@/server/stages/cleanup";
 import type { ResumeStage } from "@/server/stages/resumeCommand";
+import type { FigureMode } from "@/lib/exam/meta";
 
 const RESUME_STAGES: readonly ResumeStage[] = [
   "extractor",
@@ -183,7 +184,11 @@ export async function POST(
     // 그림/이미지정리 stage는 최초 create 시 저장된 설정을 그대로 재사용한다.
     // (전달하지 않으면 orchestrator가 gemini/true 기본값으로 폴백 → 설정한 Provider 무시)
     const imageProvider: ImageProviderId | undefined = isImageProviderId(job.imageProvider) ? job.imageProvider : undefined;
+    const imageCleaningProvider: ImageProviderId | undefined = isImageProviderId(job.imageCleaningProvider)
+      ? job.imageCleaningProvider
+      : imageProvider;
     const figureRegen = typeof job.figureRegen === "boolean" ? job.figureRegen : undefined;
+    const figureMode = typeof job.figureMode === "string" ? job.figureMode as FigureMode : undefined;
     const imageCleaningEnabled = typeof job.imageCleaningEnabled === "boolean" ? job.imageCleaningEnabled : undefined;
 
     // Update job status + record followup
@@ -286,7 +291,9 @@ export async function POST(
           stopAfterStage,
           targetQuestionNumbers: targetQuestions,
           imageProvider,
+          imageCleaningProvider,
           figureRegen,
+          figureMode,
           imageCleaningEnabled,
           checkerMaxAttempts,
           verifierMaxAttempts,

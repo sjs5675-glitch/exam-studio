@@ -140,8 +140,9 @@ class CodexCliImageProvider(BaseImageProvider):
         Do not use Python, Pillow, SVG, canvas, shell drawing, or code-based redrawing to create the image.
         Treat the attached image as the edit target/reference crop.
 
-        Extract only the math figure from the crop and output it as a clean exam-ready PNG:
+        Extract only the science figure/diagram from the crop and output it as a clean exam-ready PNG:
         - remove handwriting, pen marks, smudges, scan artifacts, page margins, problem text, and answer choice markers
+        - remove blue teacher-answer text or blue answer labels while preserving the underlying diagram
         - preserve geometric elements, axes, curves, labels, point names, numbers, angle markers, length markers, and printed annotations that belong to the figure
         - maintain the figure's composition, proportions, and label positions as close to the source as possible
         - use crisp black lines on a pure white background

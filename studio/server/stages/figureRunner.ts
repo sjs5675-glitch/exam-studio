@@ -24,8 +24,12 @@ export interface FigureRunnerInput {
   outputDir: string;
   /** Absolute path where figure_status.json will be written */
   statusOutPath: string;
-  /** false → --no-regen: crop only, skip Gemini */
+  /** false → --no-regen: crop only, skip image provider regeneration */
   regenerate: boolean;
+  /** Crop-only grayscale output. Intended for science workbook figures where original fidelity is safer. */
+  grayscale?: boolean;
+  /** Remove small blue teacher answer labels from the crop before finalizing/regenerating. */
+  removeBlueText?: boolean;
   /** 이미지 재생성 provider. regenerate=false면 사용하지 않음. */
   imageProvider?: ImageProviderId;
   /** Optional: reprocess only this question number */
@@ -98,6 +102,14 @@ export async function runFigureStage(
     args.push("--no-regen");
   }
 
+  if (input.grayscale) {
+    args.push("--grayscale");
+  }
+
+  if (input.removeBlueText) {
+    args.push("--remove-blue-text");
+  }
+
   if (input.regenerate && input.imageProvider) {
     args.push("--image-provider", input.imageProvider);
   }
@@ -110,7 +122,8 @@ export async function runFigureStage(
     command: python,
     args,
     cwd: baseDir,
-    timeoutMs: 300_000, // 5 minutes for Gemini generation
+    timeoutMs: 300_000, // 5 minutes for image generation
+    signal: input.signal,
     ...(input.env ? { env: input.env } : {}),
   });
 

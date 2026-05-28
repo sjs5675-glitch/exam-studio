@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "fs/promises";
 import type { StageCache } from "./cache";
 import type { ExamMetaInput, ExamMeta } from "@/lib/exam/meta";
-import { buildFilenameBase, isExamMetaComplete } from "@/lib/exam/meta";
+import { normalizeExamMeta } from "@/lib/exam/meta";
 
 /**
  * Per-question cache merge contract (verifier = solver reviewer).
@@ -47,19 +47,11 @@ export interface ExamDataOutput {
 }
 
 /**
- * Validate that meta has all required fields and return a complete ExamMeta.
+ * Normalize sparse meta into a complete ExamMeta.
  * Automatically fills in `filenameBase` if not supplied.
- * Throws if required fields are missing.
  */
 function assertCompleteMeta(meta: ExamMetaInput): ExamMeta {
-  if (!isExamMetaComplete(meta)) {
-    throw new Error(
-      `exam_data.json: meta missing required fields (schoolLevel/school/grade/year/subject/semester/examType/range)`
-    );
-  }
-  const complete: ExamMeta = { ...meta };
-  complete.filenameBase = meta.filenameBase ?? buildFilenameBase(complete);
-  return complete;
+  return normalizeExamMeta(meta);
 }
 
 /**

@@ -9,7 +9,30 @@ import type { ExamMetaInput, SchoolLevel } from "@/lib/exam/meta";
 import { EQ_SENTINEL_OPEN, EQ_SENTINEL_CLOSE } from "../equationSentinel";
 
 /** ExamMeta for prompt builders — subset of ExamMetaInput used in prompts. */
-export type ExamMeta = Pick<ExamMetaInput, "schoolLevel" | "school" | "year" | "grade" | "subject" | "semester" | "examType" | "range">;
+export type ExamMeta = Pick<
+  ExamMetaInput,
+  | "documentKind"
+  | "schoolLevel"
+  | "school"
+  | "year"
+  | "grade"
+  | "subject"
+  | "semester"
+  | "examType"
+  | "range"
+  | "curriculum"
+  | "publisher"
+  | "bookTitle"
+  | "bookType"
+  | "workbookRole"
+  | "bookVolume"
+  | "answerPolicy"
+  | "removeProblemIds"
+  | "removeImportanceTags"
+  | "removeQrCodes"
+  | "removePageFooters"
+  | "removePublisherBadges"
+>;
 
 export interface ExtractorPromptInput {
   questionNumber: number;
@@ -17,20 +40,29 @@ export interface ExtractorPromptInput {
   examMeta?: ExamMeta;
 }
 
-const EXTRACTOR_SYSTEM_TEMPLATE = `너는 V3 시험지 문제 추출 전문 에이전트다. 문제 이미지 1장을 받아서 구조화된 JSON으로 추출한다.
+const EXTRACTOR_SYSTEM_TEMPLATE = `너는 V3 과학 시험지·문제집 문제 추출 전문 에이전트다. 문제 이미지 1장을 받아서 구조화된 JSON으로 추출한다.
 
 ## 핵심 원칙
 
 - 이미지를 직접 보고 추출 — 텍스트 변환이 아닌 이미지 인식
 - 한 문제만 처리 — 이미지 1장 = 문제 1개
-- 수식은 표준 LaTeX 문법으로 작성 (아래 규칙 준수). HWP 변환은 코드가 자동 처리한다.
-- 모든 수학적 표현은 수식으로 — 숫자, 변수, 함수명, 영문자 모두 포함
+- 수식·화학식·단위가 붙은 정량 표현은 표준 LaTeX 문법으로 작성 (아래 규칙 준수). HWP 변환은 코드가 자동 처리한다.
+- 모든 수학적·정량적 표현은 수식으로 — 숫자, 변수, 함수명, 영문자, 단위 표기 모두 포함
+- 과학 개념어, 실험 조건, 표/그래프 축, 보기, 선지는 원본 의미를 유지
 - 읽을 수 없는 내용은 [UNCLEAR] 표기 — 절대 추측하거나 창작하지 않는다
 - 해설은 추출하지 않는다 — solver 에이전트가 담당
 
+## 과학 문제집 정리 규칙
+
+- 문제집 내부 관리용 고유 문제 번호, 문항 코드, 난이도 배지, 출판사 배지, QR, 쪽수, 반복 헤더/푸터는 문제 본문에 포함하지 않는다.
+- <중요>, 중요, 중요해!, 시험에 꼭 나와, 핵심, 필수, 개념 확인 같은 강조 태그는 문제 해결에 필요한 문장 자체가 아니면 생략한다.
+- 학생용 문제 본문과 보기/조건/표/그림 캡션은 보존한다.
+- 교사용 문제집의 파란 글씨 정답·해설·첨삭 표시가 보이면 parts/choices에는 넣지 않는다. 필요하면 "teacher_answer_parts"에 별도 기록한다.
+- 과학 그림은 사진, 실험 장치, 회로, 지층, 세포/기관, 그래프, 표, 입자 모형을 구분하여 figure_info.description_en에 영어로 간결히 설명한다.
+
 ## 수식 범위 규칙 (매우 중요!)
 
-모든 수학적 내용은 수식(eq)으로 들어간다. 다음은 모두 LaTeX 수식으로 추출해야 한다:
+모든 수학적·정량적 내용은 수식(eq)으로 들어간다. 다음은 모두 LaTeX 수식으로 추출해야 한다:
 
 - 단순 숫자 (선지): 1 → "1", 25 → "25"
 - 변수 1개: x → "x", a → "a"
@@ -75,9 +107,7 @@ const EXTRACTOR_SYSTEM_TEMPLATE = `너는 V3 시험지 문제 추출 전문 에�
 
 ## 중단원(subtopic) 분류 규칙 ({{CLASSIFICATION_DESC}})
 
-- subtopic 필드에는 반드시 {{CLASSIFICATION_FILE}}의 topics 값을 그대로 사용
-- 임의로 단원명을 만들거나 변형하지 않는다
-- 과목과 문제 내용을 보고 정확한 세부 단원을 판단
+{{SUBTOPIC_RULES}}
 
 ## 난이도 규칙
 
@@ -111,6 +141,7 @@ eq 값(및 explanation_table 의 script 값)은 반드시 센티넬 ${EQ_SENTINE
   } | null,
   "parts": [{"t": "텍스트"} | {"eq": "${EQ_SENTINEL_OPEN}LaTeX수식${EQ_SENTINEL_CLOSE}"}],
   "choices": [[{"t": "텍스트"} | {"eq": "${EQ_SENTINEL_OPEN}LaTeX수식${EQ_SENTINEL_CLOSE}"}], ...] | null,
+  "teacher_answer_parts": [{"t": "텍스트"} | {"eq": "${EQ_SENTINEL_OPEN}LaTeX수식${EQ_SENTINEL_CLOSE}"}] | null,
   // ⚠ 각 선지에 ①②③④⑤ prefix를 절대 포함하지 않는다.
   //   builder가 자동으로 번호를 부여하므로, 포함하면 "① ① 값" 중복 및 5행 강제 레이아웃 버그가 발생한다.
   //   예) ① -20  →  [{"eq": "-20"}]            (O)
@@ -180,7 +211,25 @@ eq 값(및 explanation_table 의 script 값)은 반드시 센티넬 ${EQ_SENTINE
   - cells: 각 행의 셀 값 list (예: [["1"], ["1","1"], ["1","2","1"]])
 `;
 
-function buildExtractorSystemPrompt(schoolLevel?: SchoolLevel): string {
+function isScienceSubject(subject?: string): boolean {
+  return Boolean(subject && /(과학|물리|화학|생명|지구)/.test(subject));
+}
+
+function buildExtractorSystemPrompt(schoolLevel?: SchoolLevel, subject?: string): string {
+  if (isScienceSubject(subject)) {
+    return EXTRACTOR_SYSTEM_TEMPLATE
+      .replace(/\{\{CLASSIFICATION_FILE\}\}/g, "science-workbook-units")
+      .replace(/\{\{CLASSIFICATION_DESC\}\}/g, "과학 자료 단원명")
+      .replace(
+        /\{\{SUBTOPIC_RULES\}\}/g,
+        [
+          "- subtopic 필드에는 이미지와 자료 정보의 단원/챕터명을 기준으로 간결한 과학 단원명을 적는다.",
+          "- 보이는 대단원/중단원 제목이 있으면 그대로 사용하고, 없으면 문제 내용을 보고 교과서식 단원명으로 요약한다.",
+          "- 문제집 고유 태그나 마케팅 문구를 subtopic으로 쓰지 않는다.",
+        ].join("\n")
+      );
+  }
+
   const classificationFile = schoolLevel === "중"
     ? "unit_classification_middle.json"
     : "unit_classification.json";
@@ -189,11 +238,19 @@ function buildExtractorSystemPrompt(schoolLevel?: SchoolLevel): string {
     : "고등 2015 개정교육과정 단원표";
   return EXTRACTOR_SYSTEM_TEMPLATE
     .replace(/\{\{CLASSIFICATION_FILE\}\}/g, classificationFile)
-    .replace(/\{\{CLASSIFICATION_DESC\}\}/g, classificationDesc);
+    .replace(/\{\{CLASSIFICATION_DESC\}\}/g, classificationDesc)
+    .replace(
+      /\{\{SUBTOPIC_RULES\}\}/g,
+      [
+        `- subtopic 필드에는 반드시 ${classificationFile}의 topics 값을 그대로 사용`,
+        "- 임의로 단원명을 만들거나 변형하지 않는다",
+        "- 과목과 문제 내용을 보고 정확한 세부 단원을 판단",
+      ].join("\n")
+    );
 }
 
 export function buildExtractorPrompt(input: ExtractorPromptInput): { system: string; user: string } {
-  const system = buildExtractorSystemPrompt(input.examMeta?.schoolLevel);
+  const system = buildExtractorSystemPrompt(input.examMeta?.schoolLevel, input.examMeta?.subject);
 
   const parts: string[] = [];
 
@@ -201,6 +258,9 @@ export function buildExtractorPrompt(input: ExtractorPromptInput): { system: str
 
   if (input.examMeta) {
     const metaLines: string[] = [];
+    if (input.examMeta.documentKind) {
+      metaLines.push(`작업 종류: ${input.examMeta.documentKind === "science_workbook" ? "과학 문제집" : "과학시험지"}`);
+    }
     if (input.examMeta.schoolLevel) {
       metaLines.push(`학교급: ${input.examMeta.schoolLevel === "중" ? "중학교" : "고등학교"}`);
     }
@@ -208,11 +268,22 @@ export function buildExtractorPrompt(input: ExtractorPromptInput): { system: str
     if (input.examMeta.year) metaLines.push(`연도: ${input.examMeta.year}`);
     if (input.examMeta.grade) metaLines.push(`학년: ${input.examMeta.grade}학년`);
     if (input.examMeta.subject) metaLines.push(`과목: ${input.examMeta.subject}`);
+    if (input.examMeta.curriculum) metaLines.push(`교육과정: ${input.examMeta.curriculum}`);
+    if (input.examMeta.publisher) metaLines.push(`출판사: ${input.examMeta.publisher}`);
+    if (input.examMeta.bookTitle) metaLines.push(`교재명: ${input.examMeta.bookTitle}`);
+    if (input.examMeta.bookType) metaLines.push(`교재 종류: ${input.examMeta.bookType}`);
+    if (input.examMeta.workbookRole) metaLines.push(`문제집 버전: ${input.examMeta.workbookRole === "teacher" ? "교사용" : "학생용"}`);
+    if (input.examMeta.bookVolume) metaLines.push(`권/학기: ${input.examMeta.bookVolume}`);
     if (input.examMeta.semester) metaLines.push(`학기: ${input.examMeta.semester}`);
     if (input.examMeta.examType) metaLines.push(`시험 종류: ${input.examMeta.examType}`);
     if (input.examMeta.range) metaLines.push(`범위: ${input.examMeta.range}`);
+    if (input.examMeta.removeProblemIds) metaLines.push("정리: 문제집 고유 번호 제외");
+    if (input.examMeta.removeImportanceTags) metaLines.push("정리: 중요/핵심 태그 제외");
+    if (input.examMeta.removeQrCodes) metaLines.push("정리: QR 제외");
+    if (input.examMeta.removePageFooters) metaLines.push("정리: 쪽수/푸터 제외");
+    if (input.examMeta.removePublisherBadges) metaLines.push("정리: 출판사 배지 제외");
     if (metaLines.length > 0) {
-      parts.push("시험 정보:\n" + metaLines.join("\n"));
+      parts.push("자료 정보:\n" + metaLines.join("\n"));
     }
   }
 

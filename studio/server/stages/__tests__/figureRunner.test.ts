@@ -188,6 +188,24 @@ describe("runFigureStage — spawn args", () => {
     expect(callArgs.args[providerIdx + 1]).toBe("codex-cli");
   });
 
+  it("removeBlueText=true → passes --remove-blue-text", async () => {
+    const dir = await makeTempDir();
+    const statusOutPath = path.join(dir, "figure_status.json");
+    mockSuccessSpawn(statusOutPath, doneFixture);
+
+    await runFigureStage({
+      examDataPath: path.join(dir, "exam_data.json"),
+      outputDir: path.join(dir, "images"),
+      statusOutPath,
+      regenerate: false,
+      removeBlueText: true,
+      baseDir: dir,
+    });
+
+    const callArgs = runStageCommandMock.mock.calls[0]![0] as { args: string[] };
+    expect(callArgs.args).toContain("--remove-blue-text");
+  });
+
   it("questionNumber specified: passes --question N flag", async () => {
     const dir = await makeTempDir();
     const statusOutPath = path.join(dir, "figure_status.json");

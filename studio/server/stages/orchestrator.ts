@@ -8,7 +8,7 @@ import type { ProviderTelemetryEntry } from "@/lib/ai/retry";
 import { createProviderTelemetryEntry } from "@/lib/ai/retry";
 import type { StageCache } from "./cache";
 import { createStageCache } from "./cache";
-import type { ExamMetaInput } from "@/lib/exam/meta";
+import type { ExamMetaInput, FigureMode } from "@/lib/exam/meta";
 import { buildExamDataJson } from "./examData";
 import { runExtractorStage } from "./extractor";
 import { runSolverStage } from "./solver";
@@ -54,10 +54,14 @@ export interface OrchestratorInput {
   defaultProvider: AIProviderId;
   /** stage별 스킵 플래그. 현재는 create.verifier만 의미 있음. */
   stageSkip?: StageSkipMap;
-  /** 이미지 정리/그림 재생성 단계에서 사용할 provider. */
+  /** figure 재생성 단계에서 사용할 provider. */
   imageProvider?: ImageProviderId;
+  /** 손글씨 제거/문제 이미지 정리 단계에서 사용할 provider. */
+  imageCleaningProvider?: ImageProviderId;
   /** Gemini로 그림을 재생성할지. false면 crop만 (figure_processor.py --no-regen). default true. */
   figureRegen?: boolean;
+  /** Per-job figure handling mode from the create screen. */
+  figureMode?: FigureMode;
   /** nano-banana로 문제 이미지의 손글씨/필기 흔적을 정리할지. default true. false면 원본 그대로. */
   imageCleaningEnabled?: boolean;
   /** checker auto-fix 시도 최대 횟수. 0 = 검사만, 기본 2. 범위 0~5. */
@@ -684,7 +688,7 @@ export async function runStageOrchestrator(
     // 토글 OFF면 원본을 cleaned/로 복사만(spawn은 함). resume에서 cleaned가 이미 있으면 skip.
     const runCleaner = shouldRunStage(startStage, "extractor") && stillUnder("cleaning");
     if (runCleaner && !checkAborted()) {
-      const imageProvider = input.imageProvider ?? "gemini";
+      const imageProvider = input.imageCleaningProvider ?? input.imageProvider ?? "gemini";
       const cleaningEnabled = input.imageCleaningEnabled !== false;
       const runtimeEnv = readRuntimeEnv() as Record<string, string | undefined>;
       let cleanFlag = cleaningEnabled;
@@ -710,11 +714,19 @@ export async function runStageOrchestrator(
           clean: cleanFlag,
           imageProvider,
           baseDir,
+          signal,
           env: runtimeEnv as NodeJS.ProcessEnv,
         });
+        if (checkAborted()) return cancelled(providerTelemetry);
         if (cleanerResult.status !== "failed") {
           const summary = cleanFlag ? "이미지 정리 완료" : "정리 OFF — 원본 사용";
           emitStageDone(send, "create.cleaned", { summary });
+        } else if (cleanerResult.reason === "busy") {
+          emitStageFailed(send, "create.cleaned", {
+            summary: "정리 작업 중복 감지",
+            message: cleanerResult.message ?? "이미지 정리/손글씨 제거 작업이 이미 실행 중이라 원본 이미지로 진행합니다.",
+            level: "warn",
+          });
         } else {
           // cleaning 실패는 hard fail이 아님 — 원본으로 진행.
           emitStageFailed(send, "create.cleaned", {
@@ -825,9 +837,21 @@ export async function runStageOrchestrator(
 
     // ── Stage 4: Figure ────────────────────────
     if (!checkAborted() && shouldRunStage(startStage, "figure") && stillUnder("figure")) {
-      const imageProvider = input.imageProvider ?? "gemini";
+      const figureMode = input.figureMode ?? "auto";
+      const teacherWorkbook =
+        input.meta.documentKind === "science_workbook" &&
+        input.meta.workbookRole === "teacher";
+      const imageProvider = figureMode === "chatgpt-image2" ? "codex-cli" : (input.imageProvider ?? "gemini");
       const runtimeEnv = readRuntimeEnv() as Record<string, string | undefined>;
-      let regenerate = input.figureRegen !== false;
+      let regenerate = figureMode === "chatgpt-image2"
+        ? true
+        : figureMode === "original" || figureMode === "grayscale"
+          ? false
+          : input.figureRegen !== false;
+      const grayscale = figureMode === "grayscale" || (
+        teacherWorkbook && (figureMode === "original" || figureMode === "auto")
+      );
+      const removeBlueText = teacherWorkbook;
       if (regenerate && imageProvider === "gemini" && !runtimeEnv.GEMINI_API_KEY && !runtimeEnv.GOOGLE_API_KEY) {
         send(logEvent(
           "figure",
@@ -836,17 +860,27 @@ export async function runStageOrchestrator(
         ));
         regenerate = false;
       }
-      emitStageStart(send, "figure", regenerate
-        ? `figure_processor.py를 실행합니다 (${imageProvider} 재생성).`
-        : "figure_processor.py를 실행합니다 (crop만, Gemini 호출 없음).");
+      const figureModeLabel = figureMode === "chatgpt-image2"
+        ? "ChatGPT 이미지2 재생성"
+        : figureMode === "grayscale"
+          ? "흑백 crop"
+          : figureMode === "original"
+            ? (teacherWorkbook ? "교사용 파란글씨 제거 + 흑백 crop" : "원본 crop")
+            : regenerate
+              ? `${imageProvider} 재생성`
+              : (teacherWorkbook ? "교사용 파란글씨 제거 + 흑백 crop" : "crop");
+      emitStageStart(send, "figure", `figure_processor.py를 실행합니다 (${figureModeLabel}).`);
 
       const figureResult = await runTargetedFigureStage({
         examDataPath: cache.paths.examData,
         outputDir: path.join(baseDir, "outputs", "images"),
         statusOutPath: cache.paths.figureStatus,
         regenerate,
+        grayscale,
+        removeBlueText,
         imageProvider,
         baseDir,
+        signal,
         env: runtimeEnv as NodeJS.ProcessEnv,
         targetQuestionNumbers: input.targetQuestionNumbers,
       });
@@ -947,7 +981,7 @@ export async function runStageOrchestrator(
 
       const checkerStartedAt = Date.now();
       const { result: checkerResult, autofixed } = await runCheckerWithAutoFix(
-        { hwpxPath, schoolLevel: input.meta.schoolLevel },
+        { hwpxPath, schoolLevel: input.meta.schoolLevel, subject: input.meta.subject },
         checkerAttempts
       );
 

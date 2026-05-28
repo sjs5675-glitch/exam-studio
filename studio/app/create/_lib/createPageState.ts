@@ -1,4 +1,5 @@
 import type { MetaValue } from "@/components/upload/MetaForm";
+import { DEFAULT_EXAM_META } from "@/lib/exam/meta";
 import { useJobStore } from "@/lib/store";
 import type { AIProviderId, AIStageKey } from "@/lib/ai";
 
@@ -36,14 +37,8 @@ export const META_LS_KEY = "create-v4.meta-form";
 
 export function createDefaultMeta(currentYear: number): MetaValue {
   return {
-    schoolLevel: "고",
-    school: "",
-    grade: 2,
+    ...DEFAULT_EXAM_META,
     year: currentYear,
-    subject: "수학 I",
-    semester: "1학기",
-    examType: "중간",
-    range: "",
   };
 }
 

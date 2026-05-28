@@ -12,6 +12,7 @@ venv/
 .DS_Store
 
 # Runtime cache (root and studio working dirs)
+.analysis/
 .v3cache/
 .v3cache_prev/
 .v3cache_*/

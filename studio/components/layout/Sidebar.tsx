@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/", label: "대시보드", icon: "grid" },
-  { href: "/create", label: "시험지 제작", icon: "file-plus" },
+  { href: "/create", label: "과학 타이핑", icon: "file-plus" },
   { href: "/history", label: "히스토리", icon: "clock" },
   { href: "/settings", label: "설정", icon: "settings" },
 ];

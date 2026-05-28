@@ -199,8 +199,8 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
       const path: string = uploadData.files?.[0]?.path;
       if (!path) throw new Error("서버 경로 없음");
 
-      const initialRotation: PdfRotation = 180;
-      const initialFlip: PdfFlip = true;
+      const initialRotation: PdfRotation = 0;
+      const initialFlip: PdfFlip = false;
       const meta = await fetchPdfMeta(path, initialRotation, initialFlip);
 
       setPdfPath(path);
@@ -686,7 +686,7 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
             {extracting
               ? "추출 중..."
               : onExtract
-              ? `시험지 제작 시작 (${boxes.length}문제)`
+              ? `과학 자료 타이핑 시작 (${boxes.length}문제)`
               : `추출 실행 (${boxes.length}문제)`}
           </button>
         )}

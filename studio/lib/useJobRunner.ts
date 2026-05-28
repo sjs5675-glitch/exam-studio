@@ -4,12 +4,30 @@ import { useCallback, useRef } from "react";
 import { useJobStore } from "./store";
 import type { SSEEvent } from "./claude";
 import type { AIProviderId } from "./ai";
-import { readAISettings } from "./ai/settings";
+import { readAISettings, type AISettings, type ImageProviderId } from "./ai/settings";
 import { applySSEEvent } from "./sseClient";
-import type { ExamMetaInput } from "@/lib/exam/meta";
+import type { ExamMetaInput, FigureMode } from "@/lib/exam/meta";
 
 // SSE server runs on a separate port to avoid Next.js response buffering
 const SSE_BASE = process.env.NEXT_PUBLIC_SSE_URL ?? "http://localhost:3021";
+
+function resolveFigureSettings(
+  meta: ExamMetaInput | undefined,
+  aiSettings: AISettings
+): { figureMode: FigureMode; figureRegen: boolean; imageProvider: ImageProviderId } {
+  const figureMode = meta?.figureMode ?? "auto";
+  if (figureMode === "original" || figureMode === "grayscale") {
+    return { figureMode, figureRegen: false, imageProvider: aiSettings.imageProvider };
+  }
+  if (figureMode === "chatgpt-image2") {
+    return { figureMode, figureRegen: true, imageProvider: "codex-cli" };
+  }
+  return {
+    figureMode: "auto",
+    figureRegen: aiSettings.figureRegen,
+    imageProvider: aiSettings.imageProvider,
+  };
+}
 
 export function useJobRunner() {
   const store = useJobStore();
@@ -91,6 +109,7 @@ export function useJobRunner() {
       });
       const aiSettings = readAISettings();
       const selectedProvider = provider ?? aiSettings.defaultProvider;
+      const figureSettings = resolveFigureSettings(meta, aiSettings);
 
       try {
         const res = await fetch(`${SSE_BASE}/api/run`, {
@@ -103,8 +122,10 @@ export function useJobRunner() {
             jobId,
             provider: selectedProvider,
             stageOverrides: aiSettings.stageOverrides,
-            imageProvider: aiSettings.imageProvider,
-            figureRegen: aiSettings.figureRegen,
+            imageProvider: figureSettings.imageProvider,
+            imageCleaningProvider: aiSettings.imageCleaningProvider,
+            figureRegen: figureSettings.figureRegen,
+            figureMode: figureSettings.figureMode,
             imageCleaningEnabled: aiSettings.imageCleaningEnabled,
             checkerMaxAttempts: aiSettings.checkerMaxAttempts,
             verifierMaxAttempts: aiSettings.verifierMaxAttempts,

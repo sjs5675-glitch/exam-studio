@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Figure Processor - V4: crop → Gemini regenerate → trim
+"""Figure Processor - V4: crop → optional image provider regenerate → trim
 
 Note: outputs/images/ 디렉터리는 /api/create/start 가 신규 작업 시점에
       클리어한다. 본 스크립트는 prob{N}_final.png 를 idempotent 하게 작성만 한다.
@@ -9,33 +9,38 @@ CLI usage:
     --exam-data outputs/<sample>/exam_data.json \
     --output-dir outputs/<sample>/images/ \
     --status-out outputs/<sample>/figure_status.json \
-    [--no-regen]      # crop only (Gemini skip)
+    [--no-regen]      # crop only (image provider skip)
+    [--grayscale]     # crop-only grayscale output
+    [--remove-blue-text] # remove small blue teacher answer labels
     [--question N]    # reprocess single question only
 """
 
 import argparse
+from collections import deque
 import io
 import json
 import sys
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageFilter
 from image_provider_adapter import IMAGE_PROVIDERS, ImageProviderError, create_image_provider
 
 PROMPT_TEMPLATE = (
-    "You are extracting a math diagram from a scanned Korean math exam "
-    "question. The reference image is a crop region that may also contain "
+    "You are extracting a science figure from a scanned Korean science "
+    "exam or workbook question. The reference image is a crop region that may also contain "
     "extraneous content around the figure (parts of problem text, answer "
     "choice markers, page edges, handwriting). Identify the geometric figure "
-    "within the crop and output ONLY that figure on a clean white background. "
+    "or science visual within the crop and output ONLY that figure on a clean white background. "
     "\n\n"
     "Remove handwriting, pen marks, smudges, scan artifacts, and any "
     "non-figure content (surrounding Korean text, choice markers like ①②③④⑤, "
-    "page margins, problem numbers). "
-    "Keep all geometric elements (lines, curves, axes, shapes), labels "
-    "(letters, numbers, point names like A B C P), angle markers, length "
-    "markers, and printed annotations that belong to the figure exactly as "
-    "they appear in the reference. "
+    "page margins, problem numbers). Remove blue teacher-answer text or blue "
+    "answer labels when they appear inside the crop; keep the underlying "
+    "science diagram intact. "
+    "Keep all scientific elements (apparatus, arrows, axes, graph lines, tables, "
+    "organelles, circuits, geological layers, chemical labels), labels, numbers, "
+    "symbols, units, and printed annotations that belong to the figure exactly "
+    "as they appear in the reference. "
     "{desc}"
     "Maintain the exact composition, proportions, and label positions of the "
     "figure itself. "
@@ -64,7 +69,7 @@ def _is_boundary_uncertain(box: tuple[int, int, int, int], img_w: int, img_h: in
     """Heuristic: flag crop boundary as uncertain when any of:
     - extreme aspect ratio (>5:1 or <1:5)
     - crop bbox touches page boundary
-    - Gemini output dimensions differ by >50% from cropped input
+    - generated output dimensions differ by >50% from cropped input
     """
     x0, y0, x1, y1 = box
     cw, ch = x1 - x0, y1 - y0
@@ -82,7 +87,7 @@ def _is_boundary_uncertain(box: tuple[int, int, int, int], img_w: int, img_h: in
             or x1 >= img_w - EDGE_MARGIN or y1 >= img_h - EDGE_MARGIN):
         return True
 
-    # Gemini output size diverges significantly
+    # Generated output size diverges significantly
     if gen_data is not None:
         try:
             gen_img = Image.open(io.BytesIO(gen_data))
@@ -116,6 +121,84 @@ def trim_image(img_path: str, output_path: str) -> None:
     cropped.convert("RGB").save(output_path)
 
 
+def _looks_like_teacher_blue(r: int, g: int, b: int) -> bool:
+    """Detect saturated cyan/blue answer ink while avoiding pale figure fills."""
+    cyan = r < 135 and g > 85 and b > 85 and g > r + 30 and b > r + 25
+    blue = r < 120 and b > 130 and b > r + 45 and b > g + 5
+    return cyan or blue
+
+
+def remove_blue_text_marks(img: Image.Image) -> Image.Image:
+    """Remove small blue teacher-answer text components without nuking large diagrams."""
+    rgb = img.convert("RGB")
+    w, h = rgb.size
+    pix = rgb.load()
+    visited = bytearray(w * h)
+    remove_mask = Image.new("L", (w, h), 0)
+    remove_pix = remove_mask.load()
+
+    def idx(x: int, y: int) -> int:
+        return y * w + x
+
+    max_component_h = max(10, min(32, int(h * 0.16)))
+    max_component_w = max(24, int(w * 0.45))
+    max_component_area = max(220, int(w * h * 0.018))
+
+    for y in range(h):
+        for x in range(w):
+            i = idx(x, y)
+            if visited[i]:
+                continue
+            visited[i] = 1
+            if not _looks_like_teacher_blue(*pix[x, y]):
+                continue
+
+            q: deque[tuple[int, int]] = deque([(x, y)])
+            points: list[tuple[int, int]] = []
+            x0 = x1 = x
+            y0 = y1 = y
+
+            while q:
+                cx, cy = q.popleft()
+                points.append((cx, cy))
+                if cx < x0:
+                    x0 = cx
+                elif cx > x1:
+                    x1 = cx
+                if cy < y0:
+                    y0 = cy
+                elif cy > y1:
+                    y1 = cy
+
+                for nx, ny in ((cx - 1, cy), (cx + 1, cy), (cx, cy - 1), (cx, cy + 1)):
+                    if nx < 0 or ny < 0 or nx >= w or ny >= h:
+                        continue
+                    ni = idx(nx, ny)
+                    if visited[ni]:
+                        continue
+                    visited[ni] = 1
+                    if _looks_like_teacher_blue(*pix[nx, ny]):
+                        q.append((nx, ny))
+
+            bw = x1 - x0 + 1
+            bh = y1 - y0 + 1
+            area = len(points)
+            fill = area / max(1, bw * bh)
+            text_like = (
+                bh <= max_component_h
+                and bw <= max_component_w
+                and area <= max_component_area
+                and fill <= 0.78
+            )
+            if text_like:
+                for px, py in points:
+                    remove_pix[px, py] = 255
+
+    remove_mask = remove_mask.filter(ImageFilter.MaxFilter(5))
+    white = Image.new("RGB", (w, h), "white")
+    return Image.composite(white, rgb, remove_mask)
+
+
 def process_figure(
     provider,
     prob: dict,
@@ -123,6 +206,8 @@ def process_figure(
     question_images_dir: Path,
     output_dir: Path,
     no_regen: bool,
+    grayscale: bool,
+    remove_blue_text: bool,
 ) -> dict:
     """Process a single figure problem.
 
@@ -159,6 +244,10 @@ def process_figure(
         box = (0, 0, iw, ih)
 
     cropped = img.crop(box).convert("RGB")
+    if remove_blue_text:
+        cropped = remove_blue_text_marks(cropped)
+    if grayscale:
+        cropped = cropped.convert("L").convert("RGB")
     ref_path = cache_dir / f"prob{n}_ref.jpg"
     cropped.save(str(ref_path), quality=95)
 
@@ -178,7 +267,10 @@ def process_figure(
         return s
 
     if no_regen:
-        print(f"  [Q{n}] crop만 적용 (--no-regen, crop={box})")
+        mode_label = "흑백 crop" if grayscale else "원본 crop"
+        if remove_blue_text:
+            mode_label += " + 파란글씨 제거"
+        print(f"  [Q{n}] {mode_label} 적용 (--no-regen, crop={box})")
         trim_image(str(ref_path), str(final_path))
         print(f"  [Q{n}] 완료 → {final_path}")
         return _make_q_status(_is_boundary_uncertain(box, iw, ih, None))
@@ -202,7 +294,7 @@ def process_figure(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Figure Processor — crop+Gemini+trim pipeline"
+        description="Figure Processor — crop+image-provider+trim pipeline"
     )
     parser.add_argument(
         "--exam-data",
@@ -223,6 +315,16 @@ def main() -> None:
         "--no-regen",
         action="store_true",
         help="Skip image provider regeneration — crop only",
+    )
+    parser.add_argument(
+        "--grayscale",
+        action="store_true",
+        help="Convert the cropped reference/final figure to grayscale",
+    )
+    parser.add_argument(
+        "--remove-blue-text",
+        action="store_true",
+        help="Remove small blue teacher answer labels from cropped figures",
     )
     parser.add_argument(
         "--image-provider",
@@ -282,13 +384,24 @@ def main() -> None:
         )
         return
 
-    print(f"그림 처리 시작: {len(figures)}개 (provider={args.image_provider}, no_regen={args.no_regen})")
+    print(
+        f"그림 처리 시작: {len(figures)}개 "
+        f"(provider={args.image_provider}, no_regen={args.no_regen}, "
+        f"grayscale={args.grayscale}, remove_blue_text={args.remove_blue_text})"
+    )
     questions_status: dict[str, dict] = {}
 
     for prob in figures:
         n = prob["number"]
         q_result = process_figure(
-            provider, prob, cache_dir, question_images_dir, output_dir, args.no_regen
+            provider,
+            prob,
+            cache_dir,
+            question_images_dir,
+            output_dir,
+            args.no_regen,
+            args.grayscale,
+            args.remove_blue_text,
         )
         questions_status[str(n)] = q_result
 
