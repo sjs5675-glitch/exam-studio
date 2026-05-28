@@ -98,6 +98,12 @@ function loadStoredBoxes(path: string, rotation: PdfRotation, flip: PdfFlip): Cr
   return [];
 }
 
+function isEditableKeyTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName.toLowerCase();
+  return tag === "input" || tag === "textarea" || tag === "select" || target.isContentEditable;
+}
+
 // ─── component ────────────────────────────────────────────────────────────────
 
 interface CropperWorkspaceProps {
@@ -390,8 +396,18 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (!pdfMeta) return;
-      if (e.key === "ArrowLeft") goPrev();
-      if (e.key === "ArrowRight") goNext();
+      if (isEditableKeyTarget(e.target)) return;
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
+
+      const key = e.key.toLowerCase();
+      if (key === "arrowleft" || key === "r") {
+        e.preventDefault();
+        goPrev();
+      }
+      if (key === "arrowright" || key === "e") {
+        e.preventDefault();
+        goNext();
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -595,6 +611,8 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
             <button
               onClick={goPrev}
               disabled={currentPage === 0}
+              aria-label="이전 페이지"
+              title="이전 페이지 (R)"
               className="px-2 py-1 rounded border text-sm disabled:opacity-40 hover:bg-secondary"
             >
               ←
@@ -605,6 +623,8 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
             <button
               onClick={goNext}
               disabled={currentPage === pdfMeta.pages - 1}
+              aria-label="다음 페이지"
+              title="다음 페이지 (E)"
               className="px-2 py-1 rounded border text-sm disabled:opacity-40 hover:bg-secondary"
             >
               →
