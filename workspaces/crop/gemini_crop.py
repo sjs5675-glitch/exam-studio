@@ -58,7 +58,15 @@ def pil_to_bytes(img, fmt="PNG"):
     return buf.getvalue()
 
 
-def detect_questions_gemini(page_images):
+def _coerce_page_results(value):
+    if isinstance(value, dict) and isinstance(value.get("pages"), list):
+        return value["pages"]
+    if isinstance(value, list):
+        return value
+    return None
+
+
+def detect_questions_gemini(page_images, page_offset=0, total_pages=None, announce=True):
     """
     Gemini에 모든 페이지 이미지를 보내고 문제별 bbox를 받는다.
     Gemini bbox는 1000x1000 정규화 좌표: [y_min, x_min, y_max, x_max]
@@ -71,13 +79,15 @@ def detect_questions_gemini(page_images):
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel("gemini-2.5-flash")
 
-    total_pages = len(page_images)
+    total_pages = total_pages or len(page_images)
+    first_page = page_offset + 1
+    last_page = page_offset + len(page_images)
     prompt = f"""이 이미지들은 수학/과학 시험지 또는 문제집 PDF의 각 페이지입니다.
 
 각 페이지에서 **개별 문제**의 영역을 bounding box로 반환해주세요.
 
 규칙:
-- 입력은 총 {total_pages}페이지입니다. "page" 값은 반드시 1부터 {total_pages}까지의 원본 페이지 번호만 사용합니다. 0, {total_pages + 1} 이상의 번호, 임의로 추정한 페이지 번호는 절대 쓰지 않습니다.
+- 입력 이미지는 PDF 전체 {total_pages}페이지 중 {first_page}~{last_page}페이지입니다. "page" 값은 반드시 원본 PDF 페이지 번호 {first_page}~{last_page}만 사용합니다. 0, {total_pages + 1} 이상의 번호, 임의로 추정한 페이지 번호는 절대 쓰지 않습니다.
 - 레이아웃은 1단, 2단(좌/우), 문제집형 혼합 배치가 모두 가능합니다. 실제 지면 흐름에 맞춰 위→아래, 좌단→우단 순서로 읽습니다.
 - 문제 번호(1., 2., 3... 또는 [서술형 1] 등)를 기준으로 영역을 구분합니다.
 - 각 문제 영역에는 문제 텍스트, 보기, <보기>, ㄱㄴㄷ 보기, 그림, 표, 그래프, 실험 장치, 자료 박스가 모두 포함되어야 합니다.
@@ -122,7 +132,11 @@ JSON만 반환하세요. 다른 텍스트는 포함하지 마세요."""
     contents = [prompt]
     contents.extend(page_images)
 
-    print(f"Gemini API 호출 중... ({len(page_images)} 페이지)", file=sys.stderr)
+    if announce:
+        if len(page_images) == 1:
+            print(f"Gemini API page {first_page}/{total_pages}...", file=sys.stderr)
+        else:
+            print(f"Gemini API pages {first_page}-{last_page}/{total_pages}...", file=sys.stderr)
     response = model.generate_content(contents)
 
     # JSON 파싱
@@ -137,6 +151,50 @@ JSON만 반환하세요. 다른 텍스트는 포함하지 마세요."""
         print(f"Gemini 응답 파싱 실패:", file=sys.stderr)
         print(text[:1000], file=sys.stderr)
         sys.exit(1)
+
+
+def detect_questions_gemini_all(page_images, batch_size=1):
+    """
+    Gemini는 많은 페이지를 한 번에 넣으면 인접 문제 경계를 뭉개는 경우가 있어
+    작은 묶음으로 나누어 호출한다.
+    """
+    total_pages = len(page_images)
+    all_results = []
+    batch_size = max(1, int(batch_size or 1))
+
+    for start in range(0, total_pages, batch_size):
+        end = min(start + batch_size, total_pages)
+        batch = page_images[start:end]
+        if len(batch) == 1:
+            print(f"Gemini API page {start + 1}/{total_pages}...", file=sys.stderr)
+        else:
+            print(f"Gemini API pages {start + 1}-{end}/{total_pages}...", file=sys.stderr)
+
+        raw = detect_questions_gemini(
+            batch,
+            page_offset=start,
+            total_pages=total_pages,
+            announce=False,
+        )
+        page_results = _coerce_page_results(raw)
+        if page_results is None:
+            print(f"경고: Gemini 응답이 페이지 배열 형식이 아니어서 {start + 1}쪽 묶음을 건너뜀", file=sys.stderr)
+            continue
+
+        for local_idx, page_data in enumerate(page_results):
+            if not isinstance(page_data, dict):
+                continue
+            resolved = _resolve_page_index(page_data, total_pages)
+            if (
+                len(batch) == 1
+                or resolved is None
+                or resolved < start
+                or resolved >= end
+            ) and local_idx < len(batch):
+                page_data["_source_page_index"] = start + local_idx
+        all_results.extend(page_results)
+
+    return all_results
 
 
 def crop_from_bbox(img, box_2d):
@@ -203,6 +261,11 @@ def _resolve_page_index(page_data: dict, total_pages: int):
     - page는 프롬프트 기준 1-indexed로 해석
     - page=0 같은 레거시/오류 응답만 0-indexed로 허용
     """
+    if "_source_page_index" in page_data:
+        source_page_index = _parse_int(page_data.get("_source_page_index"))
+        if source_page_index is not None and 0 <= source_page_index < total_pages:
+            return source_page_index
+
     if "pageIndex" in page_data:
         page_index = _parse_int(page_data.get("pageIndex"))
         if page_index is not None and 0 <= page_index < total_pages:
@@ -262,6 +325,12 @@ def main():
         default=False,
         help="좌우 반전(horizontal mirror). rotation 적용 후 PIL.ImageOps.mirror를 실행.",
     )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=4,
+        help="Gemini에 한 번에 보낼 페이지 수. 기본값 4는 정확도와 속도의 균형값입니다.",
+    )
     args = parser.parse_args()
 
     pdf_path = args.pdf_path
@@ -298,9 +367,7 @@ def main():
     doc.close()
 
     # Step 2: Gemini로 문제 영역 감지
-    result = detect_questions_gemini(page_pils)
-    if isinstance(result, dict) and isinstance(result.get("pages"), list):
-        result = result["pages"]
+    result = detect_questions_gemini_all(page_pils, batch_size=args.batch_size)
     if not isinstance(result, list):
         print("오류: Gemini 응답이 페이지 배열 형식이 아닙니다.", file=sys.stderr)
         sys.exit(1)

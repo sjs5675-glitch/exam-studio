@@ -228,6 +228,20 @@ function updateProgressFromStderr(job: AutoCropJob, provider: ImageProviderId, l
     return;
   }
 
+  const geminiPageMatch = /Gemini API pages?\s+(\d+)(?:-(\d+))?\/(\d+)/i.exec(line);
+  if (geminiPageMatch) {
+    const currentPage = Number(geminiPageMatch[2] ?? geminiPageMatch[1]);
+    const totalPages = Number(geminiPageMatch[3]);
+    updateJob(job, {
+      phase: "detecting",
+      currentPage,
+      totalPages,
+      progress: Math.min(95, Math.max(35, 35 + Math.round((currentPage / Math.max(1, totalPages)) * 60))),
+      message: `Gemini API 분석 중 ${currentPage}/${totalPages}`,
+    });
+    return;
+  }
+
   if (/Gemini 응답 파싱|JSON/i.test(line)) {
     updateJob(job, {
       phase: "parsing",

@@ -55,9 +55,32 @@ def test_prompt_builds_and_guards_bad_pages():
     assert result[0]["questions"][0]["number"] == 1
     assert module._resolve_page_index({"page": 25}, 24) is None
     assert module._resolve_page_index({"page": 24}, 24) == 23
+    assert module._resolve_page_index({"_source_page_index": 7, "page": 1}, 24) == 7
     assert module._normalize_box([-10, 0, 1200, 100]) == [0, 0, 1000, 100]
+
+
+def test_page_by_page_detection_anchors_source_page_index():
+    module = load_module()
+    old_key = os.environ.get("GEMINI_API_KEY")
+    module.genai = DummyGenai()
+    os.environ["GEMINI_API_KEY"] = "dummy"
+    try:
+        result = module.detect_questions_gemini_all([
+            Image.new("RGB", (8, 8), "white"),
+            Image.new("RGB", (8, 8), "white"),
+        ], batch_size=1)
+    finally:
+        if old_key is None:
+            os.environ.pop("GEMINI_API_KEY", None)
+        else:
+            os.environ["GEMINI_API_KEY"] = old_key
+
+    assert len(result) == 2
+    assert result[0]["_source_page_index"] == 0
+    assert result[1]["_source_page_index"] == 1
 
 
 if __name__ == "__main__":
     test_prompt_builds_and_guards_bad_pages()
+    test_page_by_page_detection_anchors_source_page_index()
     print("gemini_crop self-test ok")
