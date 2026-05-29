@@ -12,7 +12,11 @@ Gemini의 native bounding box 기능으로 문제 영역을 감지하고 크롭�
 """
 import argparse
 import fitz  # PyMuPDF
-import google.generativeai as genai
+import warnings
+
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", FutureWarning)
+    import google.generativeai as genai
 from PIL import Image, ImageOps
 import json
 import sys
@@ -67,11 +71,13 @@ def detect_questions_gemini(page_images):
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel("gemini-2.5-flash")
 
-    prompt = """이 이미지들은 수학/과학 시험지 또는 문제집 PDF의 각 페이지입니다.
+    total_pages = len(page_images)
+    prompt = f"""이 이미지들은 수학/과학 시험지 또는 문제집 PDF의 각 페이지입니다.
 
 각 페이지에서 **개별 문제**의 영역을 bounding box로 반환해주세요.
 
 규칙:
+- 입력은 총 {total_pages}페이지입니다. "page" 값은 반드시 1부터 {total_pages}까지의 원본 페이지 번호만 사용합니다. 0, {total_pages + 1} 이상의 번호, 임의로 추정한 페이지 번호는 절대 쓰지 않습니다.
 - 레이아웃은 1단, 2단(좌/우), 문제집형 혼합 배치가 모두 가능합니다. 실제 지면 흐름에 맞춰 위→아래, 좌단→우단 순서로 읽습니다.
 - 문제 번호(1., 2., 3... 또는 [서술형 1] 등)를 기준으로 영역을 구분합니다.
 - 각 문제 영역에는 문제 텍스트, 보기, <보기>, ㄱㄴㄷ 보기, 그림, 표, 그래프, 실험 장치, 자료 박스가 모두 포함되어야 합니다.
@@ -180,6 +186,55 @@ def _resolve_num_kind(q: dict) -> tuple[int, str]:
     return num, kind
 
 
+def _parse_int(value):
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        match = re.search(r'\d+', value)
+        if match:
+            return int(match.group())
+    return None
+
+
+def _resolve_page_index(page_data: dict, total_pages: int):
+    """
+    Gemini가 page/pageIndex를 가끔 섞거나 범위를 벗어난 값을 반환하므로 안전하게 보정한다.
+    - pageIndex는 0-indexed로 우선 해석
+    - page는 프롬프트 기준 1-indexed로 해석
+    - page=0 같은 레거시/오류 응답만 0-indexed로 허용
+    """
+    if "pageIndex" in page_data:
+        page_index = _parse_int(page_data.get("pageIndex"))
+        if page_index is not None and 0 <= page_index < total_pages:
+            return page_index
+
+    page_num = _parse_int(page_data.get("page"))
+    if page_num is None:
+        return None
+    if 1 <= page_num <= total_pages:
+        return page_num - 1
+    if page_num == 0 and total_pages > 0:
+        return 0
+    return None
+
+
+def _normalize_box(box):
+    if not isinstance(box, list) or len(box) != 4:
+        return None
+    try:
+        y_min, x_min, y_max, x_max = [float(v) for v in box]
+    except (TypeError, ValueError):
+        return None
+
+    y_min = max(0, min(1000, y_min))
+    x_min = max(0, min(1000, x_min))
+    y_max = max(0, min(1000, y_max))
+    x_max = max(0, min(1000, x_max))
+    if y_max <= y_min or x_max <= x_min:
+        return None
+    return [y_min, x_min, y_max, x_max]
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Gemini Vision 기반 PDF 시험지 자동 크롭"
@@ -244,24 +299,58 @@ def main():
 
     # Step 2: Gemini로 문제 영역 감지
     result = detect_questions_gemini(page_pils)
+    if isinstance(result, dict) and isinstance(result.get("pages"), list):
+        result = result["pages"]
+    if not isinstance(result, list):
+        print("오류: Gemini 응답이 페이지 배열 형식이 아닙니다.", file=sys.stderr)
+        sys.exit(1)
 
     # --json-only 모드: 좌표만 반환, 디스크 쓰기 없음
     if json_only:
         pages_out = []
+        warnings = []
         for page_data in result:
-            page_num = page_data["page"]          # 1-indexed (Gemini 원본)
-            page_idx = page_num - 1               # 0-indexed (cropper 일관성)
+            if not isinstance(page_data, dict):
+                warnings.append({"message": "Gemini가 페이지 객체가 아닌 항목을 반환했습니다."})
+                continue
+            page_idx = _resolve_page_index(page_data, total_pages)
+            if page_idx is None:
+                warnings.append({
+                    "page": page_data.get("page"),
+                    "message": f"페이지 번호가 PDF 범위를 벗어나 건너뜀: {page_data.get('page')}",
+                })
+                continue
             pil_img = page_pils[page_idx]
             answer_page = page_data.get("answer_page", False)
 
             questions_out = []
             if not answer_page:
                 for q in page_data.get("questions", []):
-                    num, kind = _resolve_num_kind(q)
+                    if not isinstance(q, dict):
+                        warnings.append({
+                            "page": page_idx + 1,
+                            "message": "문제 항목이 객체 형식이 아니어서 건너뜀",
+                        })
+                        continue
+                    box = _normalize_box(q.get("box_2d"))
+                    if box is None:
+                        warnings.append({
+                            "page": page_idx + 1,
+                            "message": f"잘못된 bbox를 건너뜀: {q.get('box_2d')}",
+                        })
+                        continue
+                    try:
+                        num, kind = _resolve_num_kind(q)
+                    except Exception:
+                        warnings.append({
+                            "page": page_idx + 1,
+                            "message": f"문제 번호를 해석하지 못해 건너뜀: {q.get('number')}",
+                        })
+                        continue
                     questions_out.append({
                         "number": num,
                         "kind": kind,
-                        "bbox": q["box_2d"],   # Gemini 원본 정규화 좌표 보존
+                        "bbox": box,
                     })
 
             pages_out.append({
@@ -279,6 +368,8 @@ def main():
             "flip": flip,
             "pages": pages_out,
         }
+        if warnings:
+            output["warnings"] = warnings
         print("Gemini JSON 정리 완료", file=sys.stderr)
         print(json.dumps(output, ensure_ascii=False))
         return
@@ -290,19 +381,36 @@ def main():
     answer_pages = 0
 
     for page_data in result:
-        page_num = page_data["page"]
+        if not isinstance(page_data, dict):
+            print("  경고: Gemini가 페이지 객체가 아닌 항목을 반환해 건너뜀", file=sys.stderr)
+            continue
+        page_idx = _resolve_page_index(page_data, total_pages)
+        if page_idx is None:
+            print(f"  경고: 페이지 번호가 PDF 범위를 벗어나 건너뜀: {page_data.get('page')}", file=sys.stderr)
+            continue
+        page_num = page_idx + 1
         if page_data.get("answer_page", False):
             answer_pages += 1
             print(f"  Page {page_num}: 해설/정답 페이지 (건너뜀)")
             continue
 
         problem_pages += 1
-        pil_img = page_pils[page_num - 1]
+        pil_img = page_pils[page_idx]
 
         for q in page_data.get("questions", []):
-            box = q["box_2d"]
+            if not isinstance(q, dict):
+                print(f"  경고: Page {page_num} 문제 항목이 객체 형식이 아니어서 건너뜀", file=sys.stderr)
+                continue
+            box = _normalize_box(q.get("box_2d"))
+            if box is None:
+                print(f"  경고: Page {page_num} 잘못된 bbox를 건너뜀: {q.get('box_2d')}", file=sys.stderr)
+                continue
             cropped = crop_from_bbox(pil_img, box)
-            num, kind = _resolve_num_kind(q)
+            try:
+                num, kind = _resolve_num_kind(q)
+            except Exception:
+                print(f"  경고: Page {page_num} 문제 번호를 해석하지 못해 건너뜀: {q.get('number')}", file=sys.stderr)
+                continue
 
             # kind별 파일명 분기 — zero-pad
             if kind == "essay":
