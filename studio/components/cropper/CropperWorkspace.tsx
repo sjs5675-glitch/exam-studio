@@ -490,6 +490,7 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
 
   function applyAutoCropResult(data: AutoCropResult) {
     const result: CropBox[] = [];
+    const pageWidthByIndex = new Map(data.pages.map((page) => [page.pageIndex, page.imageWidth]));
     for (const page of data.pages) {
       if (page.answerPage) continue;
       for (const q of page.questions) {
@@ -505,7 +506,12 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
       }
     }
 
-    result.sort((a, b) => a.page - b.page);
+    result.sort((a, b) => (
+      a.page - b.page ||
+      cropBoxColumn(a, pageWidthByIndex) - cropBoxColumn(b, pageWidthByIndex) ||
+      a.y - b.y ||
+      a.x - b.x
+    ));
 
     const numbered = autoNumber(result);
     setBoxes(numbered);
@@ -519,6 +525,14 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
         (first?.message ? ` — ${first.message.slice(0, 160)}` : "")
       );
     }
+  }
+
+  function cropBoxColumn(box: CropBox, pageWidthByIndex: Map<number, number>): number {
+    const pageWidth = pageWidthByIndex.get(box.page) ?? 1;
+    const xMin = (box.x / pageWidth) * 1000;
+    const xMax = ((box.x + box.w) / pageWidth) * 1000;
+    const centerX = (xMin + xMax) / 2;
+    return centerX >= 575 && xMin >= 360 ? 1 : 0;
   }
 
   async function pollAutoCropJob(jobId: string, provider: ImageProviderId): Promise<AutoCropResult> {

@@ -375,6 +375,27 @@ def _normalize_box(box):
     return [y_min, x_min, y_max, x_max]
 
 
+def _expand_box_for_reading_area(box):
+    """
+    Gemini tends to trim workbook problems too tightly, especially around the
+    left problem number/title column. Expand conservatively to the page/column
+    reading margin so the crop keeps the whole problem.
+    """
+    y_min, x_min, y_max, x_max = box
+    center_x = (x_min + x_max) / 2
+
+    y_min = max(0, y_min - 10)
+    y_max = min(1000, y_max + 14)
+    x_max = min(1000, x_max + 12)
+
+    if center_x >= 575 and x_min >= 360:
+        x_min = min(x_min, 500)
+    else:
+        x_min = min(x_min, 35)
+
+    return [y_min, x_min, y_max, x_max]
+
+
 def _bbox_area(box):
     return max(0, box[2] - box[0]) * max(0, box[3] - box[1])
 
@@ -409,6 +430,12 @@ def _geometry_warnings(page_num, questions):
                     "message": f"문제 {q['number']}번과 {other['number']}번 bbox가 크게 겹칩니다. 분할 여부를 확인하세요.",
                 })
     return warnings_out
+
+
+def _reading_order_key_from_bbox(box):
+    center_x = (box[1] + box[3]) / 2
+    column = 1 if center_x >= 575 and box[1] >= 360 else 0
+    return (column, box[0], box[1])
 
 
 def main():
@@ -529,6 +556,7 @@ def main():
                             "message": f"잘못된 bbox를 건너뜀: {q.get('box_2d')}",
                         })
                         continue
+                    box = _expand_box_for_reading_area(box)
                     try:
                         num, kind = _resolve_num_kind(q)
                     except Exception:
@@ -543,7 +571,7 @@ def main():
                         "bbox": box,
                     })
 
-            questions_out.sort(key=lambda item: (item["bbox"][0], item["bbox"][1]))
+            questions_out.sort(key=lambda item: _reading_order_key_from_bbox(item["bbox"]))
             warnings.extend(_geometry_warnings(page_idx + 1, questions_out))
 
             pages_out.append({
@@ -598,6 +626,7 @@ def main():
             if box is None:
                 print(f"  경고: Page {page_num} 잘못된 bbox를 건너뜀: {q.get('box_2d')}", file=sys.stderr)
                 continue
+            box = _expand_box_for_reading_area(box)
             cropped = crop_from_bbox(pil_img, box)
             try:
                 num, kind = _resolve_num_kind(q)

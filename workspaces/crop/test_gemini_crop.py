@@ -57,6 +57,14 @@ def test_prompt_builds_and_guards_bad_pages():
     assert module._resolve_page_index({"page": 24}, 24) == 23
     assert module._resolve_page_index({"_source_page_index": 7, "page": 1}, 24) == 7
     assert module._normalize_box([-10, 0, 1200, 100]) == [0, 0, 1000, 100]
+    assert module._expand_box_for_reading_area([100, 180, 500, 550])[1] == 35
+    assert module._expand_box_for_reading_area([100, 620, 500, 900])[1] == 500
+    boxes = [[200, 35, 300, 450], [100, 500, 220, 950], [120, 35, 180, 450]]
+    assert sorted(boxes, key=module._reading_order_key_from_bbox) == [
+        [120, 35, 180, 450],
+        [200, 35, 300, 450],
+        [100, 500, 220, 950],
+    ]
 
 
 def test_page_by_page_detection_anchors_source_page_index():
