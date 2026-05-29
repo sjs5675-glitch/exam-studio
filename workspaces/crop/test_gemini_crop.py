@@ -68,7 +68,7 @@ def test_page_by_page_detection_anchors_source_page_index():
         result = module.detect_questions_gemini_all([
             Image.new("RGB", (8, 8), "white"),
             Image.new("RGB", (8, 8), "white"),
-        ], batch_size=1)
+        ])
     finally:
         if old_key is None:
             os.environ.pop("GEMINI_API_KEY", None)

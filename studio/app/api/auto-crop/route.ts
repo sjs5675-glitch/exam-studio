@@ -18,7 +18,7 @@ const SCRIPT_BY_PROVIDER: Record<ImageProviderId, string> = {
 };
 
 const TIMEOUT_BY_PROVIDER: Record<ImageProviderId, number> = {
-  gemini: 900000,
+  gemini: 1800000,
   "codex-cli": 1800000,
 };
 

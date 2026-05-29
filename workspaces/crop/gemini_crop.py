@@ -328,8 +328,8 @@ def main():
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=4,
-        help="Gemini에 한 번에 보낼 페이지 수. 기본값 4는 정확도와 속도의 균형값입니다.",
+        default=1,
+        help="Gemini에 한 번에 보낼 페이지 수. 기본값 1은 정확도 우선입니다.",
     )
     args = parser.parse_args()
 
