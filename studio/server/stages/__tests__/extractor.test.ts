@@ -2,7 +2,12 @@ import { mkdtemp, rm, readFile, mkdir } from "fs/promises";
 import os from "os";
 import path from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { runExtractorStage, validateExtractorOutput, sanitizeExtractedChoices } from "../extractor";
+import {
+  runExtractorStage,
+  validateExtractorOutput,
+  sanitizeExtractedChoices,
+  sanitizeSharedQuestionRanges,
+} from "../extractor";
 import { buildExtractorPrompt } from "../prompts/extractorPrompt";
 import { FileBackedStageCache } from "../cache";
 import type { AIProviderAdapter, ProviderRunOptions } from "@/lib/ai/types";
@@ -735,5 +740,26 @@ describe("sanitizeExtractedChoices", () => {
     expect(result.choices![0]).toEqual([{ eq: "1" }]);
     expect(result.choices![1]).toEqual([{ eq: "2" }]);
     expect(result.choices![2]).toEqual([{ t: "나머지" }]);
+  });
+});
+
+describe("sanitizeSharedQuestionRanges", () => {
+  it("rewrites workbook shared-stem ranges to Korean problem-count labels", () => {
+    const input = {
+      has_figure: true,
+      figure_info: { description_en: "earth internal layers diagram" },
+      parts: [
+        { t: "[08~09] 그림은 지권의 층상 구조를 나타낸 것이다." },
+        { t: "[12-14] 다음 자료를 보고 물음에 답하시오." },
+      ],
+      choices: [[{ t: "지각" }], [{ t: "맨틀" }], [{ t: "외핵" }]],
+    };
+
+    const result = sanitizeSharedQuestionRanges(input);
+
+    expect(result.parts).toEqual([
+      { t: "[다음 문제 2개] 그림은 지권의 층상 구조를 나타낸 것이다." },
+      { t: "[다음 문제 3개] 다음 자료를 보고 물음에 답하시오." },
+    ]);
   });
 });

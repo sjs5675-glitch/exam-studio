@@ -133,7 +133,7 @@ export async function runExtractorStage(
   // 프롬프트가 LaTeX 로 출력 → 캐시에 쓰기 전 HWP 수식으로 변환 (R-01~R-10 후처리는 equation.py).
   const converted = convertProblemEquations(validation.output);
   const normalized = normalizePartTree(converted);
-  const sanitized = sanitizeExtractedChoices(normalized);
+  const sanitized = sanitizeSharedQuestionRanges(sanitizeExtractedChoices(normalized));
   await writeFile(outputPath, `${JSON.stringify(sanitized, null, 2)}\n`, "utf8");
 
   return {
@@ -266,6 +266,7 @@ export function validateExtractorOutput(value: unknown): ModelOutputValidation<E
  * This function is exported for unit testing.
  */
 const CHOICE_PREFIX_RE = /^[①②③④⑤]\s*/;
+const SHARED_RANGE_RE = /\[(\d{1,3})\s*[~\-–]\s*(\d{1,3})\]/g;
 
 export function sanitizeExtractedChoices(extracted: ExtractorStageOutput): ExtractorStageOutput {
   if (!Array.isArray(extracted.choices)) return extracted;
@@ -280,6 +281,32 @@ export function sanitizeExtractedChoices(extracted: ExtractorStageOutput): Extra
     return [{ ...(first as Record<string, unknown>), t: stripped } as ExtractorPartObject, ...choice.slice(1)];
   });
   return { ...extracted, choices: normalized };
+}
+
+export function sanitizeSharedQuestionRanges(extracted: ExtractorStageOutput): ExtractorStageOutput {
+  return replaceSharedRangesDeep(extracted) as ExtractorStageOutput;
+}
+
+function replaceSharedRangesDeep(value: unknown): unknown {
+  if (typeof value === "string") return replaceSharedRangeLabels(value);
+  if (Array.isArray(value)) return value.map(replaceSharedRangesDeep);
+  if (!value || typeof value !== "object") return value;
+
+  const out: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    out[key] = replaceSharedRangesDeep(child);
+  }
+  return out;
+}
+
+function replaceSharedRangeLabels(text: string): string {
+  return text.replace(SHARED_RANGE_RE, (match, startRaw: string, endRaw: string) => {
+    const start = Number.parseInt(startRaw, 10);
+    const end = Number.parseInt(endRaw, 10);
+    const count = end - start + 1;
+    if (!Number.isFinite(count) || count < 2 || count > 20) return match;
+    return `[다음 문제 ${count}개]`;
+  });
 }
 
 function toExtractorValidationFailure(

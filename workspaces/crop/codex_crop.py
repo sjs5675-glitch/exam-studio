@@ -133,6 +133,10 @@ def build_prompt(page_num, total_pages):
         - Read in the printed page flow: top to bottom, then left column to right column when columns are present.
         - Split by real problem numbers such as 1., 2., 3., circled numbers, or "[서술형 1]".
         - Include all content belonging to the problem: prompt text, choices, <보기>, ㄱㄴㄷ lists, tables, graphs, diagrams, figures, experiment setup images, and data boxes.
+        - If a new large printed problem number appears, start a new box. Do not merge adjacent problems even when they share the same background, border, page panel, or workbook decoration.
+        - Labels such as "중요해!", "<중요>", difficulty badges, page numbers, and publisher/workbook IDs are not problem numbers.
+        - For shared stems marked like "[08~09]", "[8~9]", or "[8-9]", include the shared material/figure/stem in the first problem's box and split the following problem at its own large printed number. Do not return one combined box for the entire range.
+        - Do not create a separate box for the shared range label itself.
         - Do not create separate boxes for workbook metadata such as unit labels, difficulty, important/대표/기출 badges, page IDs, or small source labels.
         - Ignore student handwriting and pen marks. Use printed content as the box boundary.
         - If the page is only answers/solutions/explanations with no student-facing problem bodies, set "answer_page": true and return no questions.

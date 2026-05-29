@@ -21,6 +21,39 @@ const AUTO_CROP_PROVIDER_LABEL: Record<ImageProviderId, string> = {
   "codex-cli": "Codex",
 };
 
+type AutoCropResult = {
+  pages: Array<{
+    pageIndex: number;
+    imageWidth: number;
+    imageHeight: number;
+    answerPage: boolean;
+    questions: Array<{
+      number: number | string;
+      kind: "regular" | "essay";
+      bbox: [number, number, number, number];
+    }>;
+  }>;
+  warnings?: Array<{ page?: number; message?: string }>;
+};
+
+type AutoCropJobStatus = "running" | "completed" | "failed";
+type AutoCropProgress = {
+  provider: ImageProviderId;
+  status: AutoCropJobStatus;
+  phase?: string;
+  message: string;
+  progress: number;
+  currentPage: number;
+  totalPages: number;
+};
+
+type AutoCropJob = AutoCropProgress & {
+  id: string;
+  error?: string;
+  detail?: string;
+  result?: AutoCropResult;
+};
+
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 function hashString(s: string): string {
@@ -150,6 +183,7 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
 
   const [autoCroppingProvider, setAutoCroppingProvider] = useState<ImageProviderId | null>(null);
   const [autoCropError, setAutoCropError] = useState<string | null>(null);
+  const [autoCropProgress, setAutoCropProgress] = useState<AutoCropProgress | null>(null);
 
   // Gemini 키가 확실히 없을 때만 자동 분할을 막는다 (null=확인 전/실패 → 막지 않음).
   const [geminiConfigured, setGeminiConfigured] = useState<boolean | null>(null);
@@ -437,6 +471,77 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
     return null;
   }
 
+  function applyAutoCropResult(data: AutoCropResult) {
+    const result: CropBox[] = [];
+    for (const page of data.pages) {
+      if (page.answerPage) continue;
+      for (const q of page.questions) {
+        const box = normalizedBboxToCropBox({
+          bbox: q.bbox,
+          pageIndex: page.pageIndex,
+          imageWidth: page.imageWidth,
+          imageHeight: page.imageHeight,
+          number: typeof q.number === "number" ? q.number : 0,
+          kind: q.kind,
+        });
+        result.push(box);
+      }
+    }
+
+    result.sort((a, b) => a.page - b.page);
+
+    const numbered = autoNumber(result);
+    setBoxes(numbered);
+    setSelectedBoxId(null);
+    if (pdfPath) saveToLS(pdfPath, rotation, flip, numbered);
+    if (data.warnings?.length) {
+      const first = data.warnings[0];
+      setAutoCropError(
+        `일부 페이지 자동분할 실패: ${data.warnings.length}페이지` +
+        (first?.page ? ` (예: ${first.page}쪽)` : "") +
+        (first?.message ? ` — ${first.message.slice(0, 160)}` : "")
+      );
+    }
+  }
+
+  async function pollAutoCropJob(jobId: string, provider: ImageProviderId): Promise<AutoCropResult> {
+    while (true) {
+      const res = await fetch(`/api/auto-crop/jobs/${encodeURIComponent(jobId)}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        const error = errData as { error?: string };
+        throw new Error(error.error ?? `자동분할 상태 조회 실패 (${res.status})`);
+      }
+
+      const data = await res.json() as { job?: AutoCropJob };
+      const job = data.job;
+      if (!job) throw new Error("자동분할 상태 응답이 비어 있습니다.");
+
+      setAutoCropProgress({
+        provider,
+        status: job.status,
+        phase: job.phase,
+        message: job.message,
+        progress: job.progress,
+        currentPage: job.currentPage,
+        totalPages: job.totalPages,
+      });
+
+      if (job.status === "completed") {
+        if (!job.result) throw new Error("자동분할 결과가 비어 있습니다.");
+        return job.result;
+      }
+      if (job.status === "failed") {
+        const detail = job.detail ? `: ${job.detail}` : "";
+        throw new Error(`${job.error ?? "자동분할 실패"}${detail}`);
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+
   async function handleAutoCrop(provider: ImageProviderId) {
     if (!pdfPath || !pdfMeta) return;
     const providerError = getAutoCropProviderError(provider);
@@ -454,9 +559,18 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
 
     setAutoCroppingProvider(provider);
     setAutoCropError(null);
+    setAutoCropProgress({
+      provider,
+      status: "running",
+      phase: "queued",
+      message: `${AUTO_CROP_PROVIDER_LABEL[provider]} 자동분할 준비 중`,
+      progress: 0,
+      currentPage: 0,
+      totalPages: pdfMeta.pages,
+    });
 
     try {
-      const res = await fetch("/api/auto-crop", {
+      const res = await fetch("/api/auto-crop/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pdfPath, rotation, flip, provider }),
@@ -469,55 +583,27 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
         throw new Error(`${error.error ?? `HTTP ${res.status}`}${detail}`);
       }
 
-      const data = await res.json() as {
-        pages: Array<{
-          pageIndex: number;
-          imageWidth: number;
-          imageHeight: number;
-          answerPage: boolean;
-          questions: Array<{
-            number: number | string;
-            kind: "regular" | "essay";
-            bbox: [number, number, number, number];
-          }>;
-        }>;
-        warnings?: Array<{ page?: number; message?: string }>;
-      };
-
-      const result: CropBox[] = [];
-      for (const page of data.pages) {
-        if (page.answerPage) continue;
-        for (const q of page.questions) {
-          const box = normalizedBboxToCropBox({
-            bbox: q.bbox,
-            pageIndex: page.pageIndex,
-            imageWidth: page.imageWidth,
-            imageHeight: page.imageHeight,
-            number: typeof q.number === "number" ? q.number : 0,
-            kind: q.kind,
-          });
-          result.push(box);
-        }
+      const startData = await res.json() as { jobId?: string; job?: AutoCropJob };
+      if (startData.job) {
+        setAutoCropProgress({
+          provider,
+          status: startData.job.status,
+          phase: startData.job.phase,
+          message: startData.job.message,
+          progress: startData.job.progress,
+          currentPage: startData.job.currentPage,
+          totalPages: startData.job.totalPages || pdfMeta.pages,
+        });
       }
+      if (!startData.jobId) throw new Error("자동분할 작업 ID를 받지 못했습니다.");
 
-      result.sort((a, b) => a.page - b.page);
-
-      const numbered = autoNumber(result);
-      setBoxes(numbered);
-      setSelectedBoxId(null);
-      if (pdfPath) saveToLS(pdfPath, rotation, flip, numbered);
-      if (data.warnings?.length) {
-        const first = data.warnings[0];
-        setAutoCropError(
-          `일부 페이지 자동분할 실패: ${data.warnings.length}페이지` +
-          (first?.page ? ` (예: ${first.page}쪽)` : "") +
-          (first?.message ? ` — ${first.message.slice(0, 160)}` : "")
-        );
-      }
+      const data = await pollAutoCropJob(startData.jobId, provider);
+      applyAutoCropResult(data);
     } catch (err) {
       setAutoCropError(err instanceof Error ? err.message : "자동 분할 실패");
     } finally {
       setAutoCroppingProvider(null);
+      setAutoCropProgress(null);
     }
   }
 
@@ -747,6 +833,32 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
       {uploadError && (
         <div className="px-4 py-2 bg-destructive/10 text-destructive text-sm">
           {uploadError}
+        </div>
+      )}
+
+      {autoCropProgress && (
+        <div className="px-4 py-2 bg-blue-50 text-blue-900 text-sm border-b border-blue-100">
+          <div className="flex items-center justify-between gap-3">
+            <span className="font-medium">
+              {AUTO_CROP_PROVIDER_LABEL[autoCropProgress.provider]} 자동분할 진행 중
+            </span>
+            <span className="text-xs tabular-nums text-blue-700">
+              {autoCropProgress.totalPages > 0
+                ? `${autoCropProgress.currentPage}/${autoCropProgress.totalPages} 페이지`
+                : autoCropProgress.phase}
+              {" · "}
+              {Math.round(autoCropProgress.progress)}%
+            </span>
+          </div>
+          <div className="mt-1.5 h-1.5 rounded-full bg-blue-100 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-blue-600 transition-all duration-500"
+              style={{ width: `${Math.max(0, Math.min(100, autoCropProgress.progress))}%` }}
+            />
+          </div>
+          <div className="mt-1 text-xs text-blue-700 truncate">
+            {autoCropProgress.message}
+          </div>
         </div>
       )}
 
