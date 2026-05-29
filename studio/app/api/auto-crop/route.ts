@@ -7,7 +7,7 @@ import { normalizePdfRotation } from "@/lib/cropper/coords";
 import { getDataRoot } from "@/lib/server/paths";
 import { isImageProviderId, type ImageProviderId } from "@/lib/ai/settings";
 
-export const maxDuration = 900;
+export const maxDuration = 1800;
 
 const execFileAsync = promisify(execFile);
 const BASE_DIR = getDataRoot();
@@ -19,7 +19,7 @@ const SCRIPT_BY_PROVIDER: Record<ImageProviderId, string> = {
 
 const TIMEOUT_BY_PROVIDER: Record<ImageProviderId, number> = {
   gemini: 180000,
-  "codex-cli": 900000,
+  "codex-cli": 1800000,
 };
 
 export async function POST(req: NextRequest) {
@@ -68,6 +68,7 @@ export async function POST(req: NextRequest) {
 
     const pythonArgs = [scriptPath, fullPath, "--json-only", "--rotation", String(rotation)];
     if (flip) pythonArgs.push("--flip");
+    if (provider === "codex-cli") pythonArgs.push("--page-timeout-sec", "120");
 
     const { stdout, stderr } = await execFileAsync(
       pythonCmd,

@@ -21,7 +21,7 @@ import fitz  # PyMuPDF
 from PIL import Image, ImageOps
 
 DPI = 200
-DEFAULT_PAGE_TIMEOUT_SEC = 240
+DEFAULT_PAGE_TIMEOUT_SEC = 120
 
 
 def normalize_rotation(rotation):
@@ -296,6 +296,12 @@ def main():
     parser.add_argument("--rotation", type=float, default=0, help="Page rotation. Normalized to 0/90/180/270.")
     parser.add_argument("--flip", action="store_true", default=False, help="Mirror page horizontally after rotation.")
     parser.add_argument("--page-timeout-sec", type=int, default=DEFAULT_PAGE_TIMEOUT_SEC)
+    parser.add_argument(
+        "--fail-fast",
+        action="store_true",
+        default=False,
+        help="Stop on the first page failure. By default failed pages are reported as warnings.",
+    )
     args = parser.parse_args()
 
     if not args.json_only:
@@ -322,6 +328,7 @@ def main():
     doc.close()
 
     pages_out = []
+    warnings = []
     with tempfile.TemporaryDirectory(prefix="exam-codex-crop-") as tmp:
         tmpdir = Path(tmp)
         for idx, pil_img in enumerate(page_pils):
@@ -330,15 +337,31 @@ def main():
             pil_img.save(image_path)
             print(f"Codex auto-crop page {page_num}/{total_pages}...", file=sys.stderr)
 
-            raw_result = run_codex_for_page(
-                codex_bin=codex_bin,
-                tmpdir=tmpdir,
-                image_path=image_path,
-                page_num=page_num,
-                total_pages=total_pages,
-                timeout_sec=args.page_timeout_sec,
-            )
-            page_result = normalize_page_result(raw_result)
+            try:
+                raw_result = run_codex_for_page(
+                    codex_bin=codex_bin,
+                    tmpdir=tmpdir,
+                    image_path=image_path,
+                    page_num=page_num,
+                    total_pages=total_pages,
+                    timeout_sec=args.page_timeout_sec,
+                )
+                page_result = normalize_page_result(raw_result)
+            except Exception as exc:
+                message = str(exc)
+                if args.fail_fast:
+                    raise
+                print(f"경고: page {page_num} 자동분할 실패 — {message}", file=sys.stderr)
+                warnings.append({
+                    "pageIndex": idx,
+                    "page": page_num,
+                    "message": message[:1200],
+                })
+                page_result = {
+                    "answerPage": False,
+                    "questions": [],
+                }
+
             pages_out.append({
                 "pageIndex": idx,
                 "imageWidth": pil_img.width,
@@ -355,6 +378,8 @@ def main():
         "provider": "codex-cli",
         "pages": pages_out,
     }
+    if warnings:
+        output["warnings"] = warnings
     print(json.dumps(output, ensure_ascii=False))
 
 

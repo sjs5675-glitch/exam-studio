@@ -464,7 +464,9 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error((errData as { error?: string }).error ?? `HTTP ${res.status}`);
+        const error = errData as { error?: string; detail?: string };
+        const detail = error.detail ? `: ${error.detail}` : "";
+        throw new Error(`${error.error ?? `HTTP ${res.status}`}${detail}`);
       }
 
       const data = await res.json() as {
@@ -479,6 +481,7 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
             bbox: [number, number, number, number];
           }>;
         }>;
+        warnings?: Array<{ page?: number; message?: string }>;
       };
 
       const result: CropBox[] = [];
@@ -503,6 +506,14 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
       setBoxes(numbered);
       setSelectedBoxId(null);
       if (pdfPath) saveToLS(pdfPath, rotation, flip, numbered);
+      if (data.warnings?.length) {
+        const first = data.warnings[0];
+        setAutoCropError(
+          `일부 페이지 자동분할 실패: ${data.warnings.length}페이지` +
+          (first?.page ? ` (예: ${first.page}쪽)` : "") +
+          (first?.message ? ` — ${first.message.slice(0, 160)}` : "")
+        );
+      }
     } catch (err) {
       setAutoCropError(err instanceof Error ? err.message : "자동 분할 실패");
     } finally {
