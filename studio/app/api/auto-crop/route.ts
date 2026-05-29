@@ -6,6 +6,7 @@ import { readRuntimeEnv } from "@/lib/server/runtimeEnv";
 import { normalizePdfRotation } from "@/lib/cropper/coords";
 import { getDataRoot } from "@/lib/server/paths";
 import { isImageProviderId, type ImageProviderId } from "@/lib/ai/settings";
+import type { AutoCropMode } from "@/lib/cropper/types";
 
 export const maxDuration = 1800;
 
@@ -22,6 +23,10 @@ const TIMEOUT_BY_PROVIDER: Record<ImageProviderId, number> = {
   "codex-cli": 1800000,
 };
 
+function normalizeAutoCropMode(value: unknown): AutoCropMode {
+  return value === "fast" ? "fast" : "accurate";
+}
+
 export async function POST(req: NextRequest) {
   let provider: ImageProviderId = "gemini";
   try {
@@ -31,6 +36,7 @@ export async function POST(req: NextRequest) {
       rotation: rawRotation = 0,
       flip = false,
       provider: rawProvider = "gemini",
+      mode: rawMode = "accurate",
     } = body;
 
     if (!pdfPath || typeof pdfPath !== "string") {
@@ -68,6 +74,14 @@ export async function POST(req: NextRequest) {
 
     const pythonArgs = [scriptPath, fullPath, "--json-only", "--rotation", String(rotation)];
     if (flip) pythonArgs.push("--flip");
+    const mode = normalizeAutoCropMode(rawMode);
+    if (provider === "gemini") {
+      if (mode === "fast") {
+        pythonArgs.push("--batch-size", "4", "--no-verify-pass");
+      } else {
+        pythonArgs.push("--batch-size", "1");
+      }
+    }
     if (provider === "codex-cli") pythonArgs.push("--page-timeout-sec", "120");
 
     const { stdout, stderr } = await execFileAsync(

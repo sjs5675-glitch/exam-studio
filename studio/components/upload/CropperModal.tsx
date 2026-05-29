@@ -4,6 +4,7 @@ import { useEffect, forwardRef } from "react";
 import { Badge } from "@/components/ui/badge";
 import { CropperWorkspace, type CropperWorkspaceRef } from "@/components/cropper/CropperWorkspace";
 import type { ImageProviderId } from "@/lib/ai/settings";
+import type { AutoCropMode } from "@/lib/cropper/types";
 
 interface CropperModalProps {
   open: boolean;
@@ -11,11 +12,12 @@ interface CropperModalProps {
   onExtract: (items: { number: number; kind?: "regular" | "essay"; blob: Blob }[]) => Promise<void>;
   autoSplitOnUpload: boolean;
   autoSplitProvider: ImageProviderId;
+  autoSplitMode: AutoCropMode;
   onPdfSelected: (path: string) => void;
 }
 
 export const CropperModal = forwardRef<CropperWorkspaceRef, CropperModalProps>(
-  function CropperModal({ open, onClose, onExtract, autoSplitOnUpload, autoSplitProvider, onPdfSelected }, ref) {
+  function CropperModal({ open, onClose, onExtract, autoSplitOnUpload, autoSplitProvider, autoSplitMode, onPdfSelected }, ref) {
     useEffect(() => {
       if (!open) return;
       const onKey = (e: KeyboardEvent) => {
@@ -65,6 +67,7 @@ export const CropperModal = forwardRef<CropperWorkspaceRef, CropperModalProps>(
               }}
               autoSplitOnUpload={autoSplitOnUpload}
               autoSplitProvider={autoSplitProvider}
+              autoSplitMode={autoSplitMode}
               onPdfSelected={onPdfSelected}
             />
           </div>

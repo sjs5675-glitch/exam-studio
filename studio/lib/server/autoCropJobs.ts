@@ -4,7 +4,7 @@ import { randomUUID } from "crypto";
 import { readRuntimeEnv } from "@/lib/server/runtimeEnv";
 import { getDataRoot } from "@/lib/server/paths";
 import type { ImageProviderId } from "@/lib/ai/settings";
-import type { PdfFlip, PdfRotation } from "@/lib/cropper/types";
+import type { AutoCropMode, PdfFlip, PdfRotation } from "@/lib/cropper/types";
 
 type AutoCropStatus = "running" | "completed" | "failed";
 type AutoCropPhase = "queued" | "rendering" | "detecting" | "parsing" | "completed" | "failed";
@@ -36,6 +36,7 @@ interface StartAutoCropJobInput {
   rotation: PdfRotation;
   flip: PdfFlip;
   provider: ImageProviderId;
+  mode: AutoCropMode;
 }
 
 const BASE_DIR = getDataRoot();
@@ -108,6 +109,13 @@ async function runAutoCropJob(job: AutoCropJob, input: StartAutoCropJobInput): P
   const pythonCmd = process.platform === "win32" ? "python" : "python3";
   const args = [scriptPath, fullPath, "--json-only", "--rotation", String(input.rotation)];
   if (input.flip) args.push("--flip");
+  if (input.provider === "gemini") {
+    if (input.mode === "fast") {
+      args.push("--batch-size", "4", "--no-verify-pass");
+    } else {
+      args.push("--batch-size", "1");
+    }
+  }
   if (input.provider === "codex-cli") args.push("--page-timeout-sec", "120");
 
   updateJob(job, {
@@ -236,8 +244,22 @@ function updateProgressFromStderr(job: AutoCropJob, provider: ImageProviderId, l
       phase: "detecting",
       currentPage,
       totalPages,
-      progress: Math.min(95, Math.max(35, 35 + Math.round((currentPage / Math.max(1, totalPages)) * 60))),
+      progress: Math.min(72, Math.max(35, 35 + Math.round((currentPage / Math.max(1, totalPages)) * 37))),
       message: `Gemini API 분석 중 ${currentPage}/${totalPages}`,
+    });
+    return;
+  }
+
+  const geminiVerifyMatch = /Gemini verify page\s+(\d+)\/(\d+)/i.exec(line);
+  if (geminiVerifyMatch) {
+    const currentPage = Number(geminiVerifyMatch[1]);
+    const totalPages = Number(geminiVerifyMatch[2]);
+    updateJob(job, {
+      phase: "detecting",
+      currentPage,
+      totalPages,
+      progress: Math.min(95, Math.max(72, 72 + Math.round((currentPage / Math.max(1, totalPages)) * 23))),
+      message: `Gemini 결과 검수 중 ${currentPage}/${totalPages}`,
     });
     return;
   }

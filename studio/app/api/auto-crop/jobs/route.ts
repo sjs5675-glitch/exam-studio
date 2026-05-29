@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { normalizePdfRotation } from "@/lib/cropper/coords";
 import { isImageProviderId } from "@/lib/ai/settings";
 import { startAutoCropJob } from "@/lib/server/autoCropJobs";
+import type { AutoCropMode } from "@/lib/cropper/types";
+
+function normalizeAutoCropMode(value: unknown): AutoCropMode {
+  return value === "fast" ? "fast" : "accurate";
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -11,6 +16,7 @@ export async function POST(req: NextRequest) {
       rotation: rawRotation = 0,
       flip = false,
       provider: rawProvider = "gemini",
+      mode: rawMode = "accurate",
     } = body;
 
     if (!pdfPath || typeof pdfPath !== "string") {
@@ -33,6 +39,7 @@ export async function POST(req: NextRequest) {
       rotation: normalizePdfRotation(rotationValue),
       flip,
       provider: rawProvider,
+      mode: normalizeAutoCropMode(rawMode),
     });
 
     return NextResponse.json({ jobId: job.id, job });

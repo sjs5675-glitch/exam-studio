@@ -8,6 +8,8 @@ export type PdfRotation = 0 | 90 | 180 | 270;
  */
 export type PdfFlip = boolean;
 
+export type AutoCropMode = "fast" | "accurate";
+
 export interface CropBox {
   id: string;          // uuid (crypto.randomUUID())
   page: number;        // 0-indexed

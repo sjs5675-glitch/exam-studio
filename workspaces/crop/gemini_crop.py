@@ -66,6 +66,13 @@ def _coerce_page_results(value):
     return None
 
 
+def _parse_gemini_json(text):
+    text = text.strip()
+    text = re.sub(r'^```json\s*', '', text)
+    text = re.sub(r'\s*```$', '', text)
+    return json.loads(text)
+
+
 def detect_questions_gemini(page_images, page_offset=0, total_pages=None, announce=True):
     """
     Gemini에 모든 페이지 이미지를 보내고 문제별 bbox를 받는다.
@@ -139,21 +146,76 @@ JSON만 반환하세요. 다른 텍스트는 포함하지 마세요."""
             print(f"Gemini API pages {first_page}-{last_page}/{total_pages}...", file=sys.stderr)
     response = model.generate_content(contents)
 
-    # JSON 파싱
-    text = response.text.strip()
-    # markdown 코드블록 제거
-    text = re.sub(r'^```json\s*', '', text)
-    text = re.sub(r'\s*```$', '', text)
-
     try:
-        return json.loads(text)
+        return _parse_gemini_json(response.text)
     except json.JSONDecodeError:
         print(f"Gemini 응답 파싱 실패:", file=sys.stderr)
-        print(text[:1000], file=sys.stderr)
+        print(response.text[:1000], file=sys.stderr)
         sys.exit(1)
 
 
-def detect_questions_gemini_all(page_images, batch_size=1):
+def refine_questions_gemini(page_image, page_data, page_index, total_pages):
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        print("오류: GEMINI_API_KEY 환경변수가 설정되지 않았습니다.", file=sys.stderr)
+        sys.exit(1)
+
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel("gemini-2.5-flash")
+    page_num = page_index + 1
+    current_json = json.dumps(page_data, ensure_ascii=False)
+    prompt = f"""이 이미지는 과학 시험지/문제집 PDF의 원본 {page_num}페이지입니다.
+
+아래는 1차 자동분할 결과입니다. 원본 이미지를 다시 보고, 문제 영역 bbox가 정확한지 검수한 뒤 수정된 JSON만 반환하세요.
+
+1차 결과:
+```json
+{current_json}
+```
+
+검수 기준:
+- 이 페이지의 모든 실제 큰 문제 번호를 빠짐없이 찾아야 합니다.
+- 서로 다른 큰 문제 번호는 반드시 서로 다른 bbox여야 합니다.
+- 13번과 14번처럼 위아래로 붙어 있어도 하나로 합치지 않습니다.
+- [16~17], [08~09]처럼 공통 자료가 있으면 공통 자료와 첫 번째 문항은 첫 번째 문제 bbox에 포함하고, 다음 문제는 자기 번호부터 별도 bbox로 나눕니다.
+- "중요해!", 난이도, 쪽수, 파란 해설/정답, 작은 관리 번호는 문제 번호가 아닙니다.
+- bbox는 [y_min, x_min, y_max, x_max] 0~1000 정규화 좌표입니다.
+- 페이지 번호는 반드시 {page_num}입니다.
+
+반환 형식은 아래처럼 이 페이지 객체 1개만 담은 JSON 배열입니다. 설명 문장은 쓰지 마세요.
+```json
+[
+  {{
+    "page": {page_num},
+    "answer_page": false,
+    "questions": [
+      {{"number": 1, "kind": "regular", "box_2d": [y_min, x_min, y_max, x_max]}}
+    ]
+  }}
+]
+```"""
+
+    response = model.generate_content([prompt, page_image])
+    try:
+        parsed = _parse_gemini_json(response.text)
+    except json.JSONDecodeError:
+        print(f"경고: Gemini 검수 응답 파싱 실패 page {page_num}", file=sys.stderr)
+        print(response.text[:1000], file=sys.stderr)
+        return page_data
+
+    page_results = _coerce_page_results(parsed)
+    if not page_results:
+        print(f"경고: Gemini 검수 응답이 비어 있음 page {page_num}", file=sys.stderr)
+        return page_data
+    refined = page_results[0]
+    if not isinstance(refined, dict):
+        print(f"경고: Gemini 검수 응답 형식 오류 page {page_num}", file=sys.stderr)
+        return page_data
+    refined["_source_page_index"] = page_index
+    return refined
+
+
+def detect_questions_gemini_all(page_images, batch_size=1, verify_pass=True):
     """
     Gemini는 많은 페이지를 한 번에 넣으면 인접 문제 경계를 뭉개는 경우가 있어
     작은 묶음으로 나누어 호출한다.
@@ -181,8 +243,10 @@ def detect_questions_gemini_all(page_images, batch_size=1):
             print(f"경고: Gemini 응답이 페이지 배열 형식이 아니어서 {start + 1}쪽 묶음을 건너뜀", file=sys.stderr)
             continue
 
+        normalized_results = []
         for local_idx, page_data in enumerate(page_results):
             if not isinstance(page_data, dict):
+                normalized_results.append(page_data)
                 continue
             resolved = _resolve_page_index(page_data, total_pages)
             if (
@@ -192,7 +256,20 @@ def detect_questions_gemini_all(page_images, batch_size=1):
                 or resolved >= end
             ) and local_idx < len(batch):
                 page_data["_source_page_index"] = start + local_idx
-        all_results.extend(page_results)
+
+            if verify_pass and local_idx < len(batch):
+                source_idx = _resolve_page_index(page_data, total_pages)
+                if source_idx is None:
+                    source_idx = start + local_idx
+                print(f"Gemini verify page {source_idx + 1}/{total_pages}...", file=sys.stderr)
+                page_data = refine_questions_gemini(
+                    batch[local_idx],
+                    page_data,
+                    source_idx,
+                    total_pages,
+                )
+            normalized_results.append(page_data)
+        all_results.extend(normalized_results)
 
     return all_results
 
@@ -298,6 +375,42 @@ def _normalize_box(box):
     return [y_min, x_min, y_max, x_max]
 
 
+def _bbox_area(box):
+    return max(0, box[2] - box[0]) * max(0, box[3] - box[1])
+
+
+def _bbox_overlap_ratio(a, b):
+    y1 = max(a[0], b[0])
+    x1 = max(a[1], b[1])
+    y2 = min(a[2], b[2])
+    x2 = min(a[3], b[3])
+    overlap = _bbox_area([y1, x1, y2, x2])
+    smaller = min(_bbox_area(a), _bbox_area(b))
+    if smaller <= 0:
+        return 0
+    return overlap / smaller
+
+
+def _geometry_warnings(page_num, questions):
+    warnings_out = []
+    for i, q in enumerate(questions):
+        box = q["bbox"]
+        area = _bbox_area(box)
+        if area > 520000:
+            warnings_out.append({
+                "page": page_num,
+                "message": f"문제 {q['number']}번 bbox가 페이지의 절반 이상을 차지합니다. 병합 여부를 확인하세요.",
+            })
+        for other in questions[i + 1:]:
+            ratio = _bbox_overlap_ratio(box, other["bbox"])
+            if ratio > 0.18:
+                warnings_out.append({
+                    "page": page_num,
+                    "message": f"문제 {q['number']}번과 {other['number']}번 bbox가 크게 겹칩니다. 분할 여부를 확인하세요.",
+                })
+    return warnings_out
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Gemini Vision 기반 PDF 시험지 자동 크롭"
@@ -330,6 +443,12 @@ def main():
         type=int,
         default=1,
         help="Gemini에 한 번에 보낼 페이지 수. 기본값 1은 정확도 우선입니다.",
+    )
+    parser.add_argument(
+        "--no-verify-pass",
+        action="store_true",
+        default=False,
+        help="2차 Gemini 검수 패스를 끕니다. 기본값은 정확도 우선으로 검수 패스를 실행합니다.",
     )
     args = parser.parse_args()
 
@@ -367,7 +486,11 @@ def main():
     doc.close()
 
     # Step 2: Gemini로 문제 영역 감지
-    result = detect_questions_gemini_all(page_pils, batch_size=args.batch_size)
+    result = detect_questions_gemini_all(
+        page_pils,
+        batch_size=args.batch_size,
+        verify_pass=not args.no_verify_pass,
+    )
     if not isinstance(result, list):
         print("오류: Gemini 응답이 페이지 배열 형식이 아닙니다.", file=sys.stderr)
         sys.exit(1)
@@ -419,6 +542,9 @@ def main():
                         "kind": kind,
                         "bbox": box,
                     })
+
+            questions_out.sort(key=lambda item: (item["bbox"][0], item["bbox"][1]))
+            warnings.extend(_geometry_warnings(page_idx + 1, questions_out))
 
             pages_out.append({
                 "pageIndex": page_idx,

@@ -43,6 +43,7 @@ import type { AIProviderId } from "@/lib/ai";
 import { NoActiveSessionPlaceholder } from "./NoActiveSessionPlaceholder";
 import {
   AUTO_SPLIT_LS_KEY,
+  AUTO_SPLIT_MODE_LS_KEY,
   AUTO_SPLIT_PROVIDER_LS_KEY,
   META_LS_KEY,
   PROVIDER_LABEL,
@@ -50,12 +51,14 @@ import {
   createDefaultMeta,
   createYearOptions,
   loadStoredAutoSplitEnabled,
+  loadStoredAutoSplitMode,
   loadStoredAutoSplitProvider,
   loadStoredMeta,
   preloadQuestionResultsFromCache,
   type BuildStatus,
   type ExistingImages,
 } from "../_lib/createPageState";
+import type { AutoCropMode } from "@/lib/cropper/types";
 
 interface CreateV4PageProps {
   currentYear: number;
@@ -154,6 +157,7 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
 
   const [autoSplitEnabled, setAutoSplitEnabled] = useState(false);
   const [autoSplitProvider, setAutoSplitProvider] = useState<ImageProviderId>("gemini");
+  const [autoSplitMode, setAutoSplitMode] = useState<AutoCropMode>("accurate");
   const [geminiConfigured, setGeminiConfigured] = useState<boolean | null>(null);
   const [codexReady, setCodexReady] = useState<boolean | null>(null);
   const [aiSettings, setAiSettings] = useState<AISettings>(DEFAULT_AI_SETTINGS);
@@ -163,6 +167,7 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
     queueMicrotask(() => {
       setAutoSplitEnabled(loadStoredAutoSplitEnabled());
       setAutoSplitProvider(loadStoredAutoSplitProvider());
+      setAutoSplitMode(loadStoredAutoSplitMode());
       setAiSettings(readAISettings());
       setMeta(loadStoredMeta(defaultMeta));
     });
@@ -231,6 +236,13 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
     setAutoSplitProvider(provider);
     try {
       localStorage.setItem(AUTO_SPLIT_PROVIDER_LS_KEY, provider);
+    } catch {}
+  }
+
+  function handleAutoSplitModeChange(mode: AutoCropMode) {
+    setAutoSplitMode(mode);
+    try {
+      localStorage.setItem(AUTO_SPLIT_MODE_LS_KEY, mode);
     } catch {}
   }
 
@@ -912,6 +924,28 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
                 Codex
               </button>
             </div>
+            <div className="ml-[1.375rem] flex items-center gap-1">
+              {(["accurate", "fast"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => handleAutoSplitModeChange(mode)}
+                  title={
+                    mode === "accurate"
+                      ? "정확도 우선: 1페이지씩 분석하고 2차 검수까지 진행합니다."
+                      : "속도 우선: 여러 페이지를 묶어 빠르게 분석하고 2차 검수는 생략합니다."
+                  }
+                  className={cn(
+                    "px-2 py-0.5 rounded border text-[10px] font-bold transition-colors",
+                    autoSplitMode === mode
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-background text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {mode === "accurate" ? "정확도" : "속도"}
+                </button>
+              ))}
+            </div>
             {autoSplitProviderMissing && (
               <a
                 href="/settings"
@@ -1147,6 +1181,7 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
         onExtract={handleExtract}
         autoSplitOnUpload={autoSplitActive}
         autoSplitProvider={autoSplitProvider}
+        autoSplitMode={autoSplitMode}
         onPdfSelected={handlePdfSelected}
       />
 

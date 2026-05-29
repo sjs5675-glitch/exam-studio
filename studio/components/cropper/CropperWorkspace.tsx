@@ -2,7 +2,7 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import JSZip from "jszip";
-import type { CropBox, PdfFlip, PdfRotation } from "@/lib/cropper/types";
+import type { AutoCropMode, CropBox, PdfFlip, PdfRotation } from "@/lib/cropper/types";
 import { autoNumber, normalizePdfRotation, normalizedBboxToCropBox } from "@/lib/cropper/coords";
 import type { ImageProviderId } from "@/lib/ai/settings";
 import { PdfPageCanvas } from "./PdfPageCanvas";
@@ -20,6 +20,11 @@ const AUTO_CROP_PROVIDER_LABEL: Record<ImageProviderId, string> = {
   gemini: "Gemini API",
   "codex-cli": "Codex",
 };
+const AUTO_CROP_MODE_LABEL: Record<AutoCropMode, string> = {
+  accurate: "정확도",
+  fast: "속도",
+};
+const AUTO_CROP_MODE_LS_KEY = "exam-studio:auto-crop-mode";
 
 type AutoCropResult = {
   pages: Array<{
@@ -145,6 +150,8 @@ interface CropperWorkspaceProps {
   autoSplitOnUpload?: boolean;
   /** Provider used when autoSplitOnUpload triggers. Manual buttons choose their own provider. */
   autoSplitProvider?: ImageProviderId;
+  /** Speed/accuracy mode used when autoSplitOnUpload triggers. */
+  autoSplitMode?: AutoCropMode;
   onPdfSelected?: (fileName: string) => void;
 }
 
@@ -153,7 +160,7 @@ export interface CropperWorkspaceRef {
 }
 
 export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspaceProps>(
-  ({ onExtract, autoSplitOnUpload = false, autoSplitProvider = "gemini", onPdfSelected }, ref) => {
+  ({ onExtract, autoSplitOnUpload = false, autoSplitProvider = "gemini", autoSplitMode = "accurate", onPdfSelected }, ref) => {
     // Upload state
     const [pdfPath, setPdfPath] = useState<string | null>(null);
     const [pdfMeta, setPdfMeta] = useState<PdfMeta | null>(null);
@@ -184,6 +191,7 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
   const [autoCroppingProvider, setAutoCroppingProvider] = useState<ImageProviderId | null>(null);
   const [autoCropError, setAutoCropError] = useState<string | null>(null);
   const [autoCropProgress, setAutoCropProgress] = useState<AutoCropProgress | null>(null);
+  const [autoCropMode, setAutoCropMode] = useState<AutoCropMode>(autoSplitMode);
 
   // Gemini 키가 확실히 없을 때만 자동 분할을 막는다 (null=확인 전/실패 → 막지 않음).
   const [geminiConfigured, setGeminiConfigured] = useState<boolean | null>(null);
@@ -191,6 +199,15 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
   const [codexReady, setCodexReady] = useState<boolean | null>(null);
   const codexMissing = codexReady === false;
   const autoCropping = autoCroppingProvider !== null;
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem(AUTO_CROP_MODE_LS_KEY);
+    if (stored === "fast" || stored === "accurate") setAutoCropMode(stored);
+  }, []);
+
+  useEffect(() => {
+    setAutoCropMode(autoSplitMode);
+  }, [autoSplitMode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -497,7 +514,7 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
     if (data.warnings?.length) {
       const first = data.warnings[0];
       setAutoCropError(
-        `일부 페이지 자동분할 실패: ${data.warnings.length}페이지` +
+        `자동분할 검토 필요: ${data.warnings.length}건` +
         (first?.page ? ` (예: ${first.page}쪽)` : "") +
         (first?.message ? ` — ${first.message.slice(0, 160)}` : "")
       );
@@ -573,7 +590,7 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
       const res = await fetch("/api/auto-crop/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pdfPath, rotation, flip, provider }),
+        body: JSON.stringify({ pdfPath, rotation, flip, provider, mode: autoCropMode }),
       });
 
       if (!res.ok) {
@@ -605,6 +622,11 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
       setAutoCroppingProvider(null);
       setAutoCropProgress(null);
     }
+  }
+
+  function handleAutoCropModeChange(mode: AutoCropMode) {
+    setAutoCropMode(mode);
+    window.localStorage.setItem(AUTO_CROP_MODE_LS_KEY, mode);
   }
 
   useEffect(() => {
@@ -790,7 +812,30 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
 
         {/* Auto-crop buttons */}
         {pdfMeta && (
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-2 border-l pl-3">
+            <div className="flex items-center rounded border overflow-hidden" aria-label="자동분할 목적 선택">
+              {(["accurate", "fast"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => handleAutoCropModeChange(mode)}
+                  disabled={autoCropping}
+                  aria-pressed={autoCropMode === mode}
+                  title={
+                    mode === "accurate"
+                      ? "1페이지씩 분석하고 2차 검수까지 실행합니다."
+                      : "여러 페이지를 묶어 빠르게 분석하고 2차 검수는 생략합니다."
+                  }
+                  className={`px-2 py-1 text-xs font-medium disabled:opacity-50 ${
+                    autoCropMode === mode
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-background hover:bg-secondary"
+                  }`}
+                >
+                  {AUTO_CROP_MODE_LABEL[mode]}
+                </button>
+              ))}
+            </div>
             <button
               type="button"
               onClick={() => void handleAutoCrop("gemini")}
