@@ -99,20 +99,20 @@ def detect_questions_gemini(page_images):
 JSON 형식으로 반환:
 ```json
 [
-  {
+  {{
     "page": 1,
     "answer_page": false,
     "questions": [
-      {"number": 1, "kind": "regular", "box_2d": [y_min, x_min, y_max, x_max]},
-      {"number": 2, "kind": "regular", "box_2d": [y_min, x_min, y_max, x_max]},
-      {"number": 1, "kind": "essay",   "box_2d": [y_min, x_min, y_max, x_max]}
+      {{"number": 1, "kind": "regular", "box_2d": [y_min, x_min, y_max, x_max]}},
+      {{"number": 2, "kind": "regular", "box_2d": [y_min, x_min, y_max, x_max]}},
+      {{"number": 1, "kind": "essay",   "box_2d": [y_min, x_min, y_max, x_max]}}
     ]
-  },
-  {
+  }},
+  {{
     "page": 2,
     "answer_page": true,
     "questions": []
-  }
+  }}
 ]
 ```
 
