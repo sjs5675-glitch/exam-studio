@@ -790,25 +790,29 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
   }, [pdfMeta, excludedPages]);
   const includedPageCount = includedPages.length;
   const currentPageExcluded = excludedPages.has(currentPage);
-  const previousIncludedPage = useMemo(() => {
-    if (!pdfMeta) return null;
-    for (let pageIndex = currentPage - 1; pageIndex >= 0; pageIndex -= 1) {
-      if (!excludedPages.has(pageIndex)) return pageIndex;
-    }
-    return null;
-  }, [currentPage, excludedPages, pdfMeta]);
-  const nextIncludedPage = useMemo(() => {
-    if (!pdfMeta) return null;
-    for (let pageIndex = currentPage + 1; pageIndex < pdfMeta.pages; pageIndex += 1) {
-      if (!excludedPages.has(pageIndex)) return pageIndex;
-    }
-    return null;
-  }, [currentPage, excludedPages, pdfMeta]);
   const visiblePageIndexes = useMemo(() => {
-    const pages = [currentPage];
-    if (pageViewMode === "spread" && nextIncludedPage !== null) pages.push(nextIncludedPage);
-    return pages;
-  }, [currentPage, nextIncludedPage, pageViewMode]);
+    const currentIndex = includedPages.indexOf(currentPage);
+    if (currentIndex < 0) return [currentPage];
+    const pageCount = pageViewMode === "spread" ? 2 : 1;
+    return includedPages.slice(currentIndex, currentIndex + pageCount);
+  }, [currentPage, includedPages, pageViewMode]);
+  const navPreviousPage = useMemo(() => {
+    const currentIndex = includedPages.indexOf(currentPage);
+    if (currentIndex <= 0) return null;
+    const step = pageViewMode === "spread" ? 2 : 1;
+    return includedPages[Math.max(0, currentIndex - step)] ?? null;
+  }, [currentPage, includedPages, pageViewMode]);
+  const navNextPage = useMemo(() => {
+    const currentIndex = includedPages.indexOf(currentPage);
+    if (currentIndex < 0) return null;
+    const step = pageViewMode === "spread" ? 2 : 1;
+    return includedPages[currentIndex + step] ?? null;
+  }, [currentPage, includedPages, pageViewMode]);
+  const pageDisplayLabel = useMemo(() => {
+    if (!pdfMeta) return "";
+    if (pageViewMode !== "spread" || visiblePageIndexes.length < 2) return `${currentPage + 1}`;
+    return `${visiblePageIndexes[0] + 1}-${visiblePageIndexes[visiblePageIndexes.length - 1] + 1}`;
+  }, [currentPage, pageViewMode, pdfMeta, visiblePageIndexes]);
 
   useEffect(() => {
     if (!pdfMeta || !excludedPages.has(currentPage)) return;
@@ -1143,14 +1147,14 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
 
   function goPrev() {
     if (!pdfMeta) return;
-    if (previousIncludedPage === null) return;
-    setCurrentPage(previousIncludedPage);
+    if (navPreviousPage === null) return;
+    setCurrentPage(navPreviousPage);
     setSelectedBoxId(null);
   }
   function goNext() {
     if (!pdfMeta) return;
-    if (nextIncludedPage === null) return;
-    setCurrentPage(nextIncludedPage);
+    if (navNextPage === null) return;
+    setCurrentPage(navNextPage);
     setSelectedBoxId(null);
   }
 
@@ -1224,18 +1228,18 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
     function onKey(e: KeyboardEvent) {
       if (!pdfMeta) return;
       if (pageOverviewOpen) return;
-      if (e.key === "ArrowLeft" && previousIncludedPage !== null) {
-        setCurrentPage(previousIncludedPage);
+      if (e.key === "ArrowLeft" && navPreviousPage !== null) {
+        setCurrentPage(navPreviousPage);
         setSelectedBoxId(null);
       }
-      if (e.key === "ArrowRight" && nextIncludedPage !== null) {
-        setCurrentPage(nextIncludedPage);
+      if (e.key === "ArrowRight" && navNextPage !== null) {
+        setCurrentPage(navNextPage);
         setSelectedBoxId(null);
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [pdfMeta, pageOverviewOpen, previousIncludedPage, nextIncludedPage]);
+  }, [pdfMeta, pageOverviewOpen, navPreviousPage, navNextPage]);
 
   useEffect(() => {
     if (!pageOverviewOpen) return;
@@ -1706,13 +1710,13 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
           <>
             <button
               onClick={goPrev}
-              disabled={previousIncludedPage === null}
+              disabled={navPreviousPage === null}
               className="shrink-0 px-2 py-1 rounded border text-sm disabled:opacity-40 hover:bg-secondary"
             >
               ←
             </button>
             <span className="text-sm tabular-nums">
-              {currentPage + 1} / {pdfMeta.pages}
+              {pageDisplayLabel} / {pdfMeta.pages}
             </span>
             <span
               className={`shrink-0 whitespace-nowrap rounded border px-2 py-1 text-xs ${
@@ -1726,7 +1730,7 @@ export const CropperWorkspace = forwardRef<CropperWorkspaceRef, CropperWorkspace
             </span>
             <button
               onClick={goNext}
-              disabled={nextIncludedPage === null}
+              disabled={navNextPage === null}
               className="shrink-0 px-2 py-1 rounded border text-sm disabled:opacity-40 hover:bg-secondary"
             >
               →
