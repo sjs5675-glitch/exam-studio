@@ -53,6 +53,7 @@ const VALID_OUTPUT = {
     [{ eq: "4" }],
     [{ eq: "5" }],
   ],
+  passage_box: null,
   condition_box: null,
   bogi_box: null,
   data_table: null,
@@ -175,7 +176,7 @@ describe("runExtractorStage", () => {
     expect(result.error?.code).toBe("extractor_provider_failed");
   });
 
-  it("returns validation failure when has_figure=true but description_en contains Korean", async () => {
+  it("allows Korean drift in figure description_en without failing extraction", async () => {
     const base = await makeTempDir();
     const cache = await makeCache(base);
 
@@ -183,7 +184,7 @@ describe("runExtractorStage", () => {
       ...VALID_OUTPUT,
       has_figure: true,
       figure_info: {
-        description_en: "그래프 그림",  // Korean characters — must fail
+        description_en: "그래프 그림",
         position: "right",
         crop_ratio: [0.5, 0.1, 1.0, 0.9],
       },
@@ -198,8 +199,7 @@ describe("runExtractorStage", () => {
       provider,
     });
 
-    expect(result.status).toBe("failed");
-    expect(result.error?.message).toContain("Korean");
+    expect(result.status).toBe("completed");
   });
 
   it("passes imagePaths and stageKey to provider.run", async () => {
@@ -231,6 +231,28 @@ describe("validateExtractorOutput", () => {
   it("passes for valid output with has_figure=false", () => {
     const result = validateExtractorOutput(VALID_OUTPUT);
     expect(result.ok).toBe(true);
+  });
+
+  it("passes for passage_box long stimulus material", () => {
+    const result = validateExtractorOutput({
+      ...VALID_OUTPUT,
+      passage_box: {
+        paragraphs: [
+          [{ t: "다음은 자석의 성질을 알아보기 위한 실험 과정이다." }],
+          [{ t: "철가루를 뿌린 뒤 자석 주변의 모양을 관찰한다." }],
+        ],
+      },
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("fails when passage_box is malformed", () => {
+    const result = validateExtractorOutput({
+      ...VALID_OUTPUT,
+      passage_box: "긴 지문",
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toContain("passage_box");
   });
 
   it("passes for valid output with has_figure=true and English description_en", () => {
@@ -311,7 +333,7 @@ describe("validateExtractorOutput", () => {
     expect((result as { ok: false; message: string }).message).toContain("crop_ratio");
   });
 
-  it("fails when description_en contains Korean characters", () => {
+  it("allows Korean characters in description_en", () => {
     const result = validateExtractorOutput({
       ...VALID_OUTPUT,
       has_figure: true,
@@ -320,8 +342,7 @@ describe("validateExtractorOutput", () => {
         position: "center",
       },
     });
-    expect(result.ok).toBe(false);
-    expect((result as { ok: false; message: string }).message).toContain("Korean");
+    expect(result.ok).toBe(true);
   });
 
   it("passes when parts is missing (parts is optional)", () => {

@@ -48,6 +48,9 @@ function makeExtracted(n: number): Record<string, unknown> {
     has_figure: false,
     figure_info: null,
     parts: [{ t: `Q${n} 본문` }, { eq: "x^2" }],
+    passage_box: {
+      parts: [{ t: `Q${n} 공통 지문` }],
+    },
     choices: [
       [{ t: "① " }, { eq: "1" }],
       [{ t: "② " }, { eq: "2" }],
@@ -233,7 +236,7 @@ describe("buildExamDataJson — merge contract (A안: verifier = gating only)", 
   });
 
   it("regression guard: assembled problem carries every field build_hwpx.py reads", async () => {
-    // assemble.py:300-310 reads: type, score, parts, choices, answer, explanation_parts, has_figure, figure_info.
+    // assemble.py reads: type, score, parts, passage_box, choices, answer, explanation_parts, has_figure, figure_info.
     const base = await makeTempDir();
     const cache = await makeCache(base);
 
@@ -247,7 +250,7 @@ describe("buildExamDataJson — merge contract (A안: verifier = gating only)", 
     });
     const p = result.problems[0] as Record<string, unknown>;
 
-    for (const key of ["type", "score", "parts", "choices", "answer", "explanation_parts", "has_figure"]) {
+    for (const key of ["type", "score", "parts", "passage_box", "choices", "answer", "explanation_parts", "has_figure"]) {
       expect(p[key], `field ${key} must survive into merged problem`).not.toBeUndefined();
     }
   });

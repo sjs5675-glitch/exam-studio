@@ -23,14 +23,20 @@ export interface ExtractorFigureInfo {
   crop_ratio?: [number, number, number, number];
 }
 
-export type ExtractorPartObject = { t: string } | { eq: string };
+export type ExtractorPartObject = { t: string } | { eq: string } | { br: true };
 export type ExtractorChoice = ExtractorPartObject[];
+export interface ExtractorPassageBox {
+  parts?: ExtractorPartObject[];
+  paragraphs?: ExtractorPartObject[][];
+  items?: Array<{ label?: string; parts?: ExtractorPartObject[] }>;
+}
 
 export interface ExtractorStageOutput {
   question?: string;
   parts?: ExtractorPartObject[];
   choices?: ExtractorChoice[];
   answer?: string | number;
+  passage_box?: ExtractorPassageBox | null;
   has_figure: boolean;
   figure_info: ExtractorFigureInfo | null;
   [key: string]: unknown;
@@ -210,6 +216,23 @@ export function validateExtractorOutput(value: unknown): ModelOutputValidation<E
   if (candidate.parts !== undefined) {
     if (!Array.isArray(candidate.parts)) {
       return { ok: false, message: "extractor parts must be an array when present" };
+    }
+  }
+
+  // passage_box: optional long passage/stimulus material rendered by builder as a one-cell table.
+  if (candidate.passage_box !== undefined && candidate.passage_box !== null) {
+    if (typeof candidate.passage_box !== "object" || Array.isArray(candidate.passage_box)) {
+      return { ok: false, message: "extractor passage_box must be an object or null" };
+    }
+    const passageBox = candidate.passage_box as Record<string, unknown>;
+    const hasParts = Array.isArray(passageBox.parts);
+    const hasParagraphs = Array.isArray(passageBox.paragraphs);
+    const hasItems = Array.isArray(passageBox.items);
+    if (!hasParts && !hasParagraphs && !hasItems) {
+      return {
+        ok: false,
+        message: "extractor passage_box must include parts, paragraphs, or items",
+      };
     }
   }
 

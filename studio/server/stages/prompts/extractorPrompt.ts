@@ -154,6 +154,10 @@ eq 값(및 explanation_table 의 script 값)은 반드시 센티넬 ${EQ_SENTINE
   //   builder가 자동으로 번호를 부여하므로, 포함하면 "① ① 값" 중복 및 5행 강제 레이아웃 버그가 발생한다.
   //   예) ① -20  →  [{"eq": "-20"}]            (O)
   //       ① -20  →  [{"t": "① "}, {"eq": "-20"}] (X)
+  "passage_box": {
+    "parts": [{"t": "텍스트"} | {"eq": "${EQ_SENTINEL_OPEN}LaTeX수식${EQ_SENTINEL_CLOSE}"} | {"br": true}],
+    "paragraphs": [[{"t": "텍스트"} | {"eq": "${EQ_SENTINEL_OPEN}LaTeX수식${EQ_SENTINEL_CLOSE}"} | {"br": true}], ...]
+  } | null,
   "condition_box": {
     "type": "bogi" | "condition" | "empty_box" | "proof" | "image_choice" | "choice_table",
     "items": [{"label": "ㄱ" | "(가)" | ..., "parts": [...]}],
@@ -197,6 +201,11 @@ eq 값(및 explanation_table 의 script 값)은 반드시 센티넬 ${EQ_SENTINE
 
 ## condition_box.type 별 사용 지침
 
+- "passage_box": 긴 지문, 공통 자료 설명, 실험 과정, 장치 구성, 관찰 결과 설명처럼 문제 해결에 필요한 긴 텍스트 블록이다.
+  - 실제 HWPX에서는 1칸짜리 표 박스로 조립된다.
+  - 짧은 <보기>, ㄱㄴㄷ 보기, 동그라미 번호 선택지는 passage_box가 아니다. 이들은 기존 parts/condition_box/choices 규칙을 따른다.
+  - passage_box로 분리한 텍스트는 parts에 중복하지 않는다. parts에는 문제 번호 뒤에 올 질문 문장만 남긴다.
+  - 여러 문단이면 paragraphs를 사용하고, 단일 문단이면 parts만 사용한다.
 - "bogi": 보기(ㄱ.ㄴ.ㄷ.) 박스. items[*].parts에 내용 채움.
 - "condition": 조건 박스 ((가)(나)(다) 또는 일반 조건). items[*].label + parts.
   - 검은 테두리 안에 "물체의 질량: 2 kg", "처음 속력: 20 m/s", "충격량의 크기: 20 N·s"처럼 줄별 자료가 있으면 condition_box.type="condition"으로 추출한다.

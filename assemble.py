@@ -35,6 +35,10 @@ CHOICE_SYMBOLS = ["①", "②", "③", "④", "⑤"]
 DEFAULT_LINE_PARAMS = (1000, 1000, 850, 600)
 PROBLEM_LINE_MAX_UNITS = 26000
 CHOICE_LINE_MAX_UNITS = 25000
+PASSAGE_BOX_WIDTH = 24400
+PASSAGE_BOX_LINE_MAX_UNITS = 23200
+PASSAGE_BOX_MIN_HEIGHT = 2600
+PASSAGE_BOX_CELL_MARGIN = 360
 PROBLEM_NUMBER_UNITS = 1900
 TAB_UNITS = 2000
 WORKBOOK_COLUMN_BODY_HEIGHT = 70000
@@ -190,6 +194,137 @@ def make_paragraph(content="", para_id="2147483648", paraPrIDRef="0", charPrIDRe
 def make_empty_para(para_id="0"):
     return make_paragraph(content="", para_id=para_id, charPrIDRef="1",
                          vertsize=1000, textheight=1000, baseline=850, spacing=600)
+
+
+def _coerce_parts(value):
+    if isinstance(value, list):
+        return [part if isinstance(part, dict) else {"t": str(part)} for part in value]
+    if value is None:
+        return []
+    return [{"t": str(value)}]
+
+
+def _split_parts_on_breaks(parts):
+    groups = []
+    current = []
+    for part in _coerce_parts(parts):
+        if part.get("br") is True:
+            if current:
+                groups.append(current)
+                current = []
+            continue
+        current.append(part)
+    if current:
+        groups.append(current)
+    return groups
+
+
+def _passage_paragraph_groups(passage_box):
+    if not isinstance(passage_box, dict):
+        return []
+
+    paragraphs = passage_box.get("paragraphs")
+    if isinstance(paragraphs, list) and paragraphs:
+        groups = []
+        for paragraph in paragraphs:
+            if isinstance(paragraph, dict):
+                groups.extend(_split_parts_on_breaks(paragraph.get("parts") or paragraph.get("text")))
+            else:
+                groups.extend(_split_parts_on_breaks(paragraph))
+        return [group for group in groups if group]
+
+    items = passage_box.get("items")
+    if isinstance(items, list) and items:
+        groups = []
+        for item in items:
+            if isinstance(item, dict):
+                label = str(item.get("label", "") or "")
+                split_groups = _split_parts_on_breaks(item.get("parts") or item.get("text"))
+                if label:
+                    if split_groups:
+                        split_groups[0] = [{"t": f"{label} "}, *split_groups[0]]
+                    else:
+                        split_groups = [[{"t": label}]]
+                groups.extend(split_groups)
+            else:
+                groups.extend(_split_parts_on_breaks(item))
+        return [group for group in groups if group]
+
+    parts = passage_box.get("parts") or passage_box.get("text") or passage_box.get("content")
+    return _split_parts_on_breaks(parts)
+
+
+def _paragraph_xml_for_cell_parts(parts, max_units=PASSAGE_BOX_LINE_MAX_UNITS):
+    content, max_eq, line_starts = flow_parts_to_content_and_lines(
+        parts,
+        first_prefix_units=0,
+        max_units=max_units,
+    )
+    if not content:
+        content = '<hp:t/>'
+    lineseg_xml = make_multiline_lineseg(
+        line_starts,
+        vertsize=max_eq[0],
+        textheight=max_eq[1],
+        baseline=max_eq[2],
+        spacing=max_eq[3],
+        horzsize=PASSAGE_BOX_WIDTH - PASSAGE_BOX_CELL_MARGIN * 2,
+    )
+    paragraph_xml = make_paragraph(
+        content=content,
+        para_id="2147483648",
+        paraPrIDRef="3",
+        charPrIDRef="1",
+        vertsize=max_eq[0],
+        textheight=max_eq[1],
+        baseline=max_eq[2],
+        spacing=max_eq[3],
+        horzsize=PASSAGE_BOX_WIDTH - PASSAGE_BOX_CELL_MARGIN * 2,
+        lineseg_xml=lineseg_xml,
+    )
+    line_height = max_eq[0] + max_eq[3]
+    estimated_height = max(1600, line_height * max(1, len(line_starts)))
+    return paragraph_xml, estimated_height
+
+
+def make_passage_box_xml(passage_box):
+    groups = _passage_paragraph_groups(passage_box)
+    if not groups:
+        return ""
+
+    paragraph_xml = ""
+    content_height = 0
+    for group in groups:
+        p_xml, p_height = _paragraph_xml_for_cell_parts(group)
+        paragraph_xml += p_xml
+        content_height += p_height
+
+    cell_height = max(PASSAGE_BOX_MIN_HEIGHT, content_height + PASSAGE_BOX_CELL_MARGIN * 2)
+    tbl_id = _ids.next_eq_id()
+    zorder = _ids.next_zorder()
+
+    return (
+        f'<hp:tbl id="{tbl_id}" zOrder="{zorder}" numberingType="TABLE" '
+        f'textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" '
+        f'pageBreak="CELL" repeatHeader="0" rowCnt="1" colCnt="1" '
+        f'cellSpacing="0" borderFillIDRef="4" noAdjust="0">'
+        f'<hp:sz width="{PASSAGE_BOX_WIDTH}" widthRelTo="ABSOLUTE" height="{cell_height}" heightRelTo="ABSOLUTE" protect="0"/>'
+        f'<hp:pos treatAsChar="1" affectLSpacing="0" flowWithText="1" allowOverlap="0" '
+        f'holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="PARA" vertAlign="TOP" horzAlign="LEFT" '
+        f'vertOffset="0" horzOffset="0"/>'
+        f'<hp:outMargin left="0" right="0" top="284" bottom="284"/>'
+        f'<hp:inMargin left="0" right="0" top="0" bottom="0"/>'
+        f'<hp:tr><hp:tc name="" header="0" hasMargin="0" protect="0" editable="0" dirty="0" borderFillIDRef="4">'
+        f'<hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="TOP" '
+        f'linkListIDRef="0" linkListNextIDRef="0" textWidth="0" textHeight="0" hasTextRef="0" hasNumRef="0">'
+        f'{paragraph_xml}</hp:subList>'
+        f'<hp:cellAddr colAddr="0" rowAddr="0"/>'
+        f'<hp:cellSpan colSpan="1" rowSpan="1"/>'
+        f'<hp:cellSz width="{PASSAGE_BOX_WIDTH}" height="{cell_height}"/>'
+        f'<hp:cellMargin left="{PASSAGE_BOX_CELL_MARGIN}" right="{PASSAGE_BOX_CELL_MARGIN}" '
+        f'top="{PASSAGE_BOX_CELL_MARGIN}" bottom="{PASSAGE_BOX_CELL_MARGIN}"/>'
+        f'</hp:tc></hp:tr></hp:tbl>'
+    )
 
 
 def make_colbreak():
@@ -481,7 +616,7 @@ def main(exam_json=None, output_dir=None, base_path=None):
         base_path = os.environ.get("EXAM_HWPX_BASE", DEFAULT_BASE)
 
     # === Load exam data ===
-    with open(exam_json, "r", encoding="utf-8") as f:
+    with open(exam_json, "r", encoding="utf-8-sig") as f:
         exam = json.load(f)
 
     info = exam["info"]
@@ -548,6 +683,7 @@ def main(exam_json=None, output_dir=None, base_path=None):
         answer = prob["answer"]
         explanation = prob.get("explanation_parts", [])
         explanation_table = prob.get("explanation_table")
+        passage_box = prob.get("passage_box")
         condition_box = prob.get("condition_box")
         data_table = prob.get("data_table")
         has_figure = prob.get("has_figure", False)
@@ -582,6 +718,19 @@ def main(exam_json=None, output_dir=None, base_path=None):
         ))
         if not is_choice_problem:
             block_paras.append(make_empty_para())
+
+        # Passage/stimulus box — long reading passages, experiment procedures,
+        # apparatus descriptions, and shared material render as a one-cell table.
+        if passage_box:
+            passage_xml = make_passage_box_xml(passage_box)
+            if passage_xml:
+                passage_p = (f'<hp:p id="2147483648" paraPrIDRef="3" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">'
+                             f'<hp:run charPrIDRef="1">{passage_xml}<hp:t/></hp:run>'
+                             f'{make_lineseg(0, 1000, 1000, 850, 600)}'
+                             f'</hp:p>')
+                block_paras.append(passage_p)
+                if not is_choice_problem:
+                    block_paras.append(make_empty_para())
 
         # Figure — figure_status.json에서 finalImage 읽기 (figure_info["final_image"] 참조 폐기)
         img_path = final_images.get(num)
@@ -729,6 +878,14 @@ def main(exam_json=None, output_dir=None, base_path=None):
                 line += part["t"]
             elif "eq" in part:
                 line += part["eq"]
+        passage_box = prob.get("passage_box")
+        if passage_box:
+            for group in _passage_paragraph_groups(passage_box):
+                for part in group:
+                    if "t" in part:
+                        line += " " + part["t"]
+                    elif "eq" in part:
+                        line += " " + part["eq"]
         prv_lines.append(line[:80])
     prv_text = "\n".join(prv_lines[:20])
 
