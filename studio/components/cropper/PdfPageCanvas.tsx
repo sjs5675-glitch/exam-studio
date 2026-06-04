@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import type { CropBox } from "@/lib/cropper/types";
+import type { CropBox, CropRegionType } from "@/lib/cropper/types";
 import { CropBoxLayer } from "./CropBoxLayer";
 
 export interface PdfPageCanvasProps {
@@ -11,6 +11,9 @@ export interface PdfPageCanvasProps {
   imageHeight: number;      // rendered PNG pixel height
   boxes: CropBox[];         // only boxes for this page (parent filters)
   selectedBoxId: string | null;
+  createRegionType: CropRegionType;
+  createOwnerBoxId?: string | null;
+  displayScale?: number;
   onBoxesChange: (boxes: CropBox[]) => void; // full page boxes after CRUD
   onSelectBox: (id: string | null) => void;
 }
@@ -22,6 +25,9 @@ export function PdfPageCanvas({
   imageHeight,
   boxes,
   selectedBoxId,
+  createRegionType,
+  createOwnerBoxId,
+  displayScale = 1,
   onBoxesChange,
   onSelectBox,
 }: PdfPageCanvasProps) {
@@ -59,8 +65,8 @@ export function PdfPageCanvas({
       ref={containerRef}
       style={{
         position: "relative",
-        width: "100%",
-        maxWidth: imageWidth,
+        width: Math.max(1, Math.round(imageWidth * displayScale)),
+        maxWidth: "none",
         height: displayHeight > 0 ? displayHeight : "auto",
         overflow: "hidden",
         userSelect: "none",
@@ -85,6 +91,8 @@ export function PdfPageCanvas({
         <CropBoxLayer
           boxes={boxes}
           selectedBoxId={selectedBoxId}
+          createRegionType={createRegionType}
+          createOwnerBoxId={createOwnerBoxId}
           displayWidth={displayWidth}
           displayHeight={displayHeight}
           imageWidth={imageWidth}

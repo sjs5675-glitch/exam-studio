@@ -1,6 +1,7 @@
 import { useJobStore } from "@/lib/store";
 import type { SSEEvent } from "@/lib/claude";
 import { applySSEEvent } from "@/lib/sseClient";
+import type { ExamMetaInput } from "@/lib/exam/meta";
 
 type Store = ReturnType<typeof useJobStore.getState>;
 
@@ -9,6 +10,7 @@ export async function sendResumeAction(
   jobId: string,
   instruction: string,
   store: Store,
+  meta?: ExamMetaInput,
 ) {
   store.setStatus("running");
   store.addLog({
@@ -22,7 +24,7 @@ export async function sendResumeAction(
     const res = await fetch(`/api/run/${jobId}/followup`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ instruction }),
+      body: JSON.stringify({ instruction, meta }),
     });
 
     if (!res.ok || !res.body) {

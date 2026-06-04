@@ -8,6 +8,8 @@ import type { AutoCropMode } from "@/lib/cropper/types";
 export type QuestionFigureCacheState = {
   status: "ok" | "failed" | "boundary_uncertain";
   image?: string;
+  finalImage?: string;
+  error?: string;
 };
 
 export type QuestionCacheStateMap = Record<number, {

@@ -97,7 +97,7 @@ export function QuestionDetail({ qr }: { qr: QuestionResult }) {
 
       <div className="flex-1 flex overflow-hidden">
         {/* Left Column: Images (Reduced clutter) */}
-        <div className="w-[42%] border-r bg-muted/5 overflow-y-auto p-6 space-y-8 text-muted-foreground/60">
+        <div className="w-[34%] min-w-[260px] max-w-[500px] border-r bg-muted/5 overflow-y-auto p-4 2xl:p-5 space-y-6 text-muted-foreground/60">
           <div className="space-y-4">
             <h3 className="text-[10px] font-bold uppercase tracking-[0.15em] flex items-center gap-2">
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -140,9 +140,9 @@ export function QuestionDetail({ qr }: { qr: QuestionResult }) {
             </div>
 
             <div className="flex-1 overflow-y-auto min-h-0">
-              <TabsContent value="extract" className="m-0 p-8 focus-visible:outline-none">
+              <TabsContent value="extract" className="m-0 p-5 2xl:p-7 focus-visible:outline-none">
                 {ext ? (
-                  <div className="space-y-10 max-w-3xl">
+                  <div className="space-y-8 max-w-none">
                     {/* Metadata: Minimalist badges */}
                     <div className="flex flex-wrap items-center gap-8 pb-8 border-b border-border/60">
                       <div className="space-y-2">
@@ -260,9 +260,9 @@ export function QuestionDetail({ qr }: { qr: QuestionResult }) {
                 )}
               </TabsContent>
 
-              <TabsContent value="solve" className="m-0 p-8 focus-visible:outline-none">
+              <TabsContent value="solve" className="m-0 p-5 2xl:p-7 focus-visible:outline-none">
                 {sol ? (
-                  <div className="space-y-8 max-w-3xl">
+                  <div className="space-y-8 max-w-none">
                     <SolutionView sol={sol} onSave={saveSolve} />
                   </div>
                 ) : (
@@ -270,9 +270,9 @@ export function QuestionDetail({ qr }: { qr: QuestionResult }) {
                 )}
               </TabsContent>
 
-              <TabsContent value="verify" className="m-0 p-8 focus-visible:outline-none">
+              <TabsContent value="verify" className="m-0 p-5 2xl:p-7 focus-visible:outline-none">
                 {ver ? (
-                  <div className="space-y-8 max-w-3xl animate-in slide-in-from-bottom-2 duration-500 fill-mode-both">
+                  <div className="space-y-8 max-w-none animate-in slide-in-from-bottom-2 duration-500 fill-mode-both">
                     {process.env.NODE_ENV !== "production" && (() => {
                       console.log(`[verify-debug] Q${qr.number}`, {
                         status: ver.status,

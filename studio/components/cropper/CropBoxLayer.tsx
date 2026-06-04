@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import type { CropBox } from "@/lib/cropper/types";
+import type { CropBox, CropRegionType } from "@/lib/cropper/types";
 import {
   clampBox,
+  cropRegionType,
   imageToScreen,
   normalizeBox,
   screenToImage,
@@ -62,6 +63,8 @@ interface PendingCreate {
 export interface CropBoxLayerProps {
   boxes: CropBox[];
   selectedBoxId: string | null;
+  createRegionType: CropRegionType;
+  createOwnerBoxId?: string | null;
   /** display size of the canvas (CSS px) */
   displayWidth: number;
   displayHeight: number;
@@ -74,6 +77,15 @@ export interface CropBoxLayerProps {
 
 const MIN_BOX_SIZE = 5; // pixels in image-space
 const HANDLE_RADIUS = 6;
+
+const REGION_STYLE: Record<CropRegionType, { label: string; stroke: string; fill: string }> = {
+  problem: { label: "문제", stroke: "#2563eb", fill: "rgba(37,99,235,0.08)" },
+  figure: { label: "그림", stroke: "#16a34a", fill: "rgba(22,163,74,0.10)" },
+  table: { label: "표", stroke: "#9333ea", fill: "rgba(147,51,234,0.10)" },
+  passage: { label: "지문", stroke: "#ea580c", fill: "rgba(234,88,12,0.10)" },
+  experiment: { label: "실험", stroke: "#0891b2", fill: "rgba(8,145,178,0.10)" },
+  exclude: { label: "제외", stroke: "#64748b", fill: "rgba(100,116,139,0.10)" },
+};
 
 // ──────────────────────────────────────────────
 // Helper: apply resize drag to origBox
@@ -108,6 +120,8 @@ function applyResize(
 export function CropBoxLayer({
   boxes,
   selectedBoxId,
+  createRegionType,
+  createOwnerBoxId,
   displayWidth,
   displayHeight,
   imageWidth,
@@ -312,6 +326,9 @@ export function CropBoxLayer({
               w: clamped.w,
               h: clamped.h,
               number: boxesRef.current.length + 1, // parent autoNumber overrides
+              regionType: createRegionType,
+              ownerBoxId: createOwnerBoxId ?? undefined,
+              figureMode: createRegionType === "figure" ? "original" : undefined,
             };
             onBoxesChangeRef.current([...boxesRef.current, newBox]);
             onSelectBoxRef.current(newBox.id);
@@ -348,7 +365,7 @@ export function CropBoxLayer({
       window.removeEventListener("mouseup", onMouseUp);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [displayWidth, displayHeight, imageWidth, imageHeight]);
+  }, [displayWidth, displayHeight, imageWidth, imageHeight, createRegionType, createOwnerBoxId]);
 
   // ── keyboard: Delete / Backspace ──
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -381,6 +398,7 @@ export function CropBoxLayer({
       {/* In-progress create preview (dashed outline, no parent state) */}
       {pendingCreate &&
         (() => {
+          const style = REGION_STYLE[createRegionType];
           const norm = normalizeBox({
             x: pendingCreate.startImgX,
             y: pendingCreate.startImgY,
@@ -396,8 +414,8 @@ export function CropBoxLayer({
               y={sc.y}
               width={scW}
               height={scH}
-              fill="rgba(0,0,255,0.08)"
-              stroke="#2563eb"
+              fill={style.fill}
+              stroke={style.stroke}
               strokeWidth={2}
               strokeDasharray="4 2"
               pointerEvents="none"
@@ -407,6 +425,8 @@ export function CropBoxLayer({
 
       {boxes.map((box) => {
         const isSelected = box.id === selectedBoxId;
+        const type = cropRegionType(box);
+        const style = REGION_STYLE[type];
         // normalise before rendering (may be mid-drag with negative w/h)
         const norm = normalizeBox(box);
         const sc = toScreen(norm.x, norm.y);
@@ -425,10 +445,13 @@ export function CropBoxLayer({
           { dir: "w", cx: sc.x, cy: sc.y + scH / 2 },
         ];
 
-        const labelText = String(box.number);
+        const labelText =
+          type === "problem"
+            ? String(box.number)
+            : `${style.label}${box.ownerNumber ? ` #${box.ownerNumber}` : ""}`;
         const fontSize = 12;
         const labelPad = 3;
-        const labelW = labelText.length * (fontSize * 0.65) + labelPad * 2;
+        const labelW = Math.max(28, labelText.length * (fontSize * 0.75) + labelPad * 2);
         const labelH = fontSize + labelPad * 2;
 
         return (
@@ -439,8 +462,8 @@ export function CropBoxLayer({
               y={sc.y}
               width={scW}
               height={scH}
-              fill="rgba(0,0,255,0.08)"
-              stroke={isSelected ? "#2563eb" : "#3b82f6"}
+              fill={style.fill}
+              stroke={isSelected ? style.stroke : style.stroke}
               strokeWidth={isSelected ? 3 : 2}
               data-boxid={box.id}
               style={{ cursor: "move" }}
@@ -452,7 +475,7 @@ export function CropBoxLayer({
               y={sc.y - labelH}
               width={labelW}
               height={labelH}
-              fill="#2563eb"
+              fill={style.stroke}
               pointerEvents="none"
             />
             {/* Number label text */}
@@ -506,7 +529,7 @@ export function CropBoxLayer({
                   cy={cy}
                   r={HANDLE_RADIUS}
                   fill="white"
-                  stroke="#2563eb"
+                  stroke={style.stroke}
                   strokeWidth={2}
                   data-handle={dir}
                   data-boxid={box.id}

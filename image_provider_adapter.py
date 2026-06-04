@@ -155,10 +155,52 @@ class CodexCliImageProvider(BaseImageProvider):
     def _run_codex_image_tool(
         self, ref_path: Path, task_prompt: str, timeout_sec: int
     ) -> tuple[bytes | None, str | None]:
-        with tempfile.TemporaryDirectory(prefix="ngd-codex-image-") as tmp:
+        def _read_tail(file_path: Path) -> str:
+            try:
+                text = file_path.read_text(encoding="utf-8", errors="replace").strip()
+            except Exception:
+                return ""
+            return text[-4000:]
+
+        def _output_is_ready(file_path: Path) -> bool:
+            try:
+                if file_path.stat().st_size <= 0:
+                    return False
+                with Image.open(str(file_path)) as img:
+                    img.verify()
+                return True
+            except Exception:
+                return False
+
+        def _terminate_tree(proc: subprocess.Popen[str]) -> None:
+            if proc.poll() is not None:
+                return
+            if os.name == "nt":
+                try:
+                    subprocess.run(
+                        ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=10,
+                    )
+                    return
+                except Exception:
+                    pass
+            try:
+                proc.terminate()
+                proc.wait(timeout=10)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+
+        with tempfile.TemporaryDirectory(prefix="ngd-codex-image-", ignore_cleanup_errors=True) as tmp:
             tmpdir = Path(tmp)
             input_path = tmpdir / f"input{ref_path.suffix or '.png'}"
             output_path = tmpdir / "output.png"
+            stdout_path = tmpdir / "codex_stdout.txt"
+            stderr_path = tmpdir / "codex_stderr.txt"
             shutil.copyfile(str(ref_path), str(input_path))
 
             full_prompt = textwrap.dedent(f"""
@@ -188,26 +230,67 @@ class CodexCliImageProvider(BaseImageProvider):
                 str(input_path),
                 "-",
             ]
+            start = time.monotonic()
+            proc: subprocess.Popen[str] | None = None
             try:
-                proc = subprocess.run(
-                    cmd,
-                    input=full_prompt,
-                    text=True,
-                    capture_output=True,
-                    timeout=timeout_sec,
-                )
-            except subprocess.TimeoutExpired:
-                return None, f"codex image generation timed out after {timeout_sec}s"
+                with stdout_path.open("w", encoding="utf-8", errors="replace") as stdout_f, \
+                     stderr_path.open("w", encoding="utf-8", errors="replace") as stderr_f:
+                    proc = subprocess.Popen(
+                        cmd,
+                        stdin=subprocess.PIPE,
+                        stdout=stdout_f,
+                        stderr=stderr_f,
+                        text=True,
+                    )
+                    assert proc.stdin is not None
+                    proc.stdin.write(full_prompt)
+                    proc.stdin.close()
 
-            if proc.returncode != 0:
-                stderr = proc.stderr.strip()
-                stdout = proc.stdout.strip()
-                return None, f"codex exited with {proc.returncode}: {stderr or stdout}"
+                    last_size = -1
+                    stable_seen_at: float | None = None
+                    while True:
+                        if output_path.exists():
+                            size = output_path.stat().st_size
+                            if size == last_size:
+                                stable_seen_at = stable_seen_at or time.monotonic()
+                            else:
+                                last_size = size
+                                stable_seen_at = None
+                            if (
+                                stable_seen_at is not None
+                                and time.monotonic() - stable_seen_at >= 1.5
+                                and _output_is_ready(output_path)
+                            ):
+                                data = output_path.read_bytes()
+                                _terminate_tree(proc)
+                                return data, None
+
+                        return_code = proc.poll()
+                        if return_code is not None:
+                            break
+
+                        if time.monotonic() - start > timeout_sec:
+                            _terminate_tree(proc)
+                            if output_path.exists() and _output_is_ready(output_path):
+                                return output_path.read_bytes(), None
+                            return None, f"codex image generation timed out after {timeout_sec}s"
+
+                        time.sleep(0.5)
+            except Exception as e:
+                if proc is not None:
+                    _terminate_tree(proc)
+                return None, f"codex image generation failed: {type(e).__name__}: {e}"
+
+            return_code = proc.returncode if proc is not None else None
 
             if not output_path.exists():
                 error_path = tmpdir / "error.txt"
                 if error_path.exists():
                     return None, error_path.read_text(encoding="utf-8", errors="replace").strip()
+                stderr = _read_tail(stderr_path)
+                stdout = _read_tail(stdout_path)
+                if return_code not in (0, None):
+                    return None, f"codex exited with {return_code}: {stderr or stdout}"
                 return None, "codex did not create output.png"
 
             try:

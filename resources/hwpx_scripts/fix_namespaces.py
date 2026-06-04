@@ -20,6 +20,18 @@ import re
 import sys
 
 
+_BLANK_EQUATION_RE = re.compile(
+    r'<hp:equation\b(?:(?!</hp:equation>).)*?'
+    r'<hp:script[^>]*>\s*</hp:script>'
+    r'(?:(?!</hp:equation>).)*?</hp:equation>',
+    re.DOTALL,
+)
+
+
+def sanitize_hancom_xml(text):
+    return _BLANK_EQUATION_RE.sub("", text)
+
+
 def fix_hwpx_namespaces(hwpx_path):
     """
     HWPX 파일의 ns0:/ns1: 등 자동 생성 프리픽스를
@@ -56,6 +68,7 @@ def fix_hwpx_namespaces(hwpx_path):
                         text = text.replace(f"<{old_prefix}:", f"<{new_prefix}:")
                         text = text.replace(f"</{old_prefix}:", f"</{new_prefix}:")
 
+                    text = sanitize_hancom_xml(text)
                     data = text.encode("utf-8")
 
                 zout.writestr(item, data)

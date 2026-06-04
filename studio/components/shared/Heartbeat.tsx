@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 
-const SSE_BASE = process.env.NEXT_PUBLIC_SSE_URL ?? "http://localhost:3021";
+const SSE_BASE = process.env.NEXT_PUBLIC_SSE_URL ?? "http://localhost:3031";
 const INTERVAL = 10_000; // 10초
 
 /**

@@ -42,6 +42,7 @@ export interface ExtractorStageInput {
   examMeta?: ExamMeta;
   cache: StageCache;
   provider?: AIProviderAdapter;
+  cwd?: string;
   signal?: AbortSignal;
 }
 
@@ -86,6 +87,7 @@ export async function runExtractorStage(
   // type tag is ambiguous (e.g., listing docs/extractor-reference/ to find matching type).
   const providerResult = provider.run(combinedPrompt, {
     stageKey: "create.extractor",
+    cwd: input.cwd,
     imagePaths: [input.imagePath],
     signal: input.signal,
     maxTurns: 5,
@@ -153,8 +155,6 @@ export async function runExtractorStage(
   };
 }
 
-const HAS_KOREAN = /[가-힣]/;
-
 export function validateExtractorOutput(value: unknown): ModelOutputValidation<ExtractorStageOutput> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return { ok: false, message: "extractor output must be a non-null object" };
@@ -181,17 +181,11 @@ export function validateExtractorOutput(value: unknown): ModelOutputValidation<E
     }
     const fi = candidate.figure_info as Record<string, unknown>;
 
-    // description_en must be present and in English (no Korean)
+    // description_en is preferred in English for figure regeneration, but language
+    // drift should not invalidate the whole question extraction.
     if (fi.description_en !== undefined) {
       if (typeof fi.description_en !== "string") {
         return { ok: false, message: "extractor figure_info.description_en must be a string" };
-      }
-      if (HAS_KOREAN.test(fi.description_en)) {
-        return {
-          ok: false,
-          message: "extractor figure_info.description_en must not contain Korean characters",
-          details: { description_en: fi.description_en },
-        };
       }
     }
 

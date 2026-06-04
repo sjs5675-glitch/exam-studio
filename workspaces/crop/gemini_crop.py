@@ -51,6 +51,30 @@ def pdf_page_to_pil(page, dpi=DPI, rotation=0, flip=False):
     return img
 
 
+def parse_page_indices(value, total_pages):
+    """Parse a comma-separated zero-based page index list."""
+    if not value:
+        return list(range(total_pages))
+    selected = []
+    seen = set()
+    for raw in value.split(","):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            page_index = int(raw)
+        except ValueError:
+            raise ValueError(f"invalid page index: {raw}") from None
+        if page_index < 0 or page_index >= total_pages:
+            raise ValueError(f"page index out of range: {page_index}")
+        if page_index not in seen:
+            seen.add(page_index)
+            selected.append(page_index)
+    if not selected:
+        raise ValueError("--pages must include at least one page")
+    return selected
+
+
 def pil_to_bytes(img, fmt="PNG"):
     """PIL Image를 bytes로 변환."""
     buf = io.BytesIO()
@@ -73,7 +97,7 @@ def _parse_gemini_json(text):
     return json.loads(text)
 
 
-def detect_questions_gemini(page_images, page_offset=0, total_pages=None, announce=True):
+def detect_questions_gemini(page_images, page_offset=0, total_pages=None, announce=True, page_numbers=None):
     """
     Gemini에 모든 페이지 이미지를 보내고 문제별 bbox를 받는다.
     Gemini bbox는 1000x1000 정규화 좌표: [y_min, x_min, y_max, x_max]
@@ -87,14 +111,29 @@ def detect_questions_gemini(page_images, page_offset=0, total_pages=None, announ
     model = genai.GenerativeModel("gemini-2.5-flash")
 
     total_pages = total_pages or len(page_images)
-    first_page = page_offset + 1
-    last_page = page_offset + len(page_images)
+    if page_numbers:
+        page_numbers = [int(page) for page in page_numbers]
+    else:
+        page_numbers = list(range(page_offset + 1, page_offset + len(page_images) + 1))
+    first_page = page_numbers[0]
+    last_page = page_numbers[-1]
+    if len(page_numbers) == 1:
+        page_scope_instruction = (
+            f'- 입력 이미지는 PDF 전체 {total_pages}페이지 중 원본 {first_page}페이지입니다. '
+            f'"page" 값은 반드시 {first_page}만 사용합니다.'
+        )
+    else:
+        page_list = ", ".join(str(page) for page in page_numbers)
+        page_scope_instruction = (
+            f'- 입력 이미지는 PDF 전체 {total_pages}페이지 중 원본 페이지 [{page_list}]입니다. '
+            f'이미지 순서는 이 목록과 같습니다. "page" 값은 반드시 이 목록의 원본 PDF 페이지 번호 중 하나만 사용합니다.'
+        )
     prompt = f"""이 이미지들은 수학/과학 시험지 또는 문제집 PDF의 각 페이지입니다.
 
 각 페이지에서 **개별 문제**의 영역을 bounding box로 반환해주세요.
 
 규칙:
-- 입력 이미지는 PDF 전체 {total_pages}페이지 중 {first_page}~{last_page}페이지입니다. "page" 값은 반드시 원본 PDF 페이지 번호 {first_page}~{last_page}만 사용합니다. 0, {total_pages + 1} 이상의 번호, 임의로 추정한 페이지 번호는 절대 쓰지 않습니다.
+{page_scope_instruction}
 - 레이아웃은 1단, 2단(좌/우), 문제집형 혼합 배치가 모두 가능합니다. 실제 지면 흐름에 맞춰 위→아래, 좌단→우단 순서로 읽습니다.
 - 문제 번호(1., 2., 3... 또는 [서술형 1] 등)를 기준으로 영역을 구분합니다.
 - 각 문제 영역에는 문제 텍스트, 보기, <보기>, ㄱㄴㄷ 보기, 그림, 표, 그래프, 실험 장치, 자료 박스가 모두 포함되어야 합니다.
@@ -107,6 +146,15 @@ def detect_questions_gemini(page_images, page_offset=0, total_pages=None, announ
 - 해설/정답만 있는 페이지는 "answer_page": true로 표시하고 문제를 추출하지 않습니다.
 - 교사용 문제집처럼 파란 답이 학생용 문제 위에 적힌 페이지는 answer_page로 보지 말고 문제 영역을 추출합니다.
 - bounding box는 [y_min, x_min, y_max, x_max] 형식 (0-1000 정규화)으로 반환합니다.
+- 각 문제에는 선택적으로 "regions" 배열을 넣습니다. regions는 사용자가 나중에 수정할 수 있는 세부 영역입니다.
+  - 일반 선택지, 동그라미 번호 선택지, 짧은 <보기>, ㄱ/ㄴ/ㄷ 보기 목록은 세부 regions로 만들지 말고 문제 영역 안에만 포함합니다.
+  - "figure": 그림, 사진, 도해, 그래프, 지도, 실험 장치처럼 시각 자료 자체인 영역
+  - "table": 실제 표, 데이터 표, 행렬형 선택지, 박스형 수치 자료
+  - "passage": 긴 공통 지문, 긴 자료 설명, 박스 안에 들어간 여러 줄의 읽기 지문, 실험 과정, 장치 구성 설명, 관찰 결과 설명, 실험 자료 전체 블록. 짧은 <보기>나 ㄱ/ㄴ/ㄷ 보기는 passage가 아닙니다.
+  - "exclude": 장식, 중요 표시, 페이지 번호, 문제 풀이에 필요 없는 출판사 표식
+- "experiment" 타입은 반환하지 않습니다. 실험 과정/장치 구성/관찰 설명은 passage로 넣고, 단순 실험 장치 그림만 있으면 figure로 둡니다.
+- regions의 box_2d도 [y_min, x_min, y_max, x_max] 0~1000 정규화 좌표입니다.
+- [08~09]처럼 공통 긴 지문/자료/실험 설명이 있으면 첫 관련 문제의 regions에 figure/passage로 넣고, 다음 문제는 별도 문제 bbox로 유지합니다.
 - 각 문제에 "kind" 필드를 반드시 포함합니다:
   - 객관식 또는 단답형이면 "regular"
   - 서술형(예: "[서술형 N]", "서술형 1")이면 "essay"
@@ -120,7 +168,10 @@ JSON 형식으로 반환:
     "page": 1,
     "answer_page": false,
     "questions": [
-      {{"number": 1, "kind": "regular", "box_2d": [y_min, x_min, y_max, x_max]}},
+      {{"number": 1, "kind": "regular", "box_2d": [y_min, x_min, y_max, x_max], "regions": [
+        {{"type": "figure", "box_2d": [y_min, x_min, y_max, x_max], "label": "diagram"}},
+        {{"type": "table", "box_2d": [y_min, x_min, y_max, x_max], "label": "data table"}}
+      ]}},
       {{"number": 2, "kind": "regular", "box_2d": [y_min, x_min, y_max, x_max]}},
       {{"number": 1, "kind": "essay",   "box_2d": [y_min, x_min, y_max, x_max]}}
     ]
@@ -180,6 +231,10 @@ def refine_questions_gemini(page_image, page_data, page_index, total_pages):
 - [16~17], [08~09]처럼 공통 자료가 있으면 공통 자료와 첫 번째 문항은 첫 번째 문제 bbox에 포함하고, 다음 문제는 자기 번호부터 별도 bbox로 나눕니다.
 - "중요해!", 난이도, 쪽수, 파란 해설/정답, 작은 관리 번호는 문제 번호가 아닙니다.
 - bbox는 [y_min, x_min, y_max, x_max] 0~1000 정규화 좌표입니다.
+- 가능하면 각 문제 안의 regions도 유지하거나 보정합니다. type은 figure, table, passage, exclude 중 하나입니다.
+- 일반 선택지, 동그라미 번호 선택지, 짧은 <보기>, ㄱ/ㄴ/ㄷ 보기 목록은 regions로 만들지 않습니다.
+- 실험 과정/장치 구성/관찰 설명은 experiment가 아니라 passage로 둡니다.
+- 공통 긴 지문/자료/그림/실험 설명 블록은 첫 관련 문제의 regions에 넣고 다음 문제 bbox와 합치지 않습니다.
 - 페이지 번호는 반드시 {page_num}입니다.
 
 반환 형식은 아래처럼 이 페이지 객체 1개만 담은 JSON 배열입니다. 설명 문장은 쓰지 마세요.
@@ -189,7 +244,9 @@ def refine_questions_gemini(page_image, page_data, page_index, total_pages):
     "page": {page_num},
     "answer_page": false,
     "questions": [
-      {{"number": 1, "kind": "regular", "box_2d": [y_min, x_min, y_max, x_max]}}
+      {{"number": 1, "kind": "regular", "box_2d": [y_min, x_min, y_max, x_max], "regions": [
+        {{"type": "figure", "box_2d": [y_min, x_min, y_max, x_max], "label": "diagram"}}
+      ]}}
     ]
   }}
 ]
@@ -215,27 +272,32 @@ def refine_questions_gemini(page_image, page_data, page_index, total_pages):
     return refined
 
 
-def detect_questions_gemini_all(page_images, batch_size=1, verify_pass=True):
+def detect_questions_gemini_all(page_images, batch_size=1, verify_pass=True, source_page_indices=None, original_total_pages=None):
     """
     Gemini는 많은 페이지를 한 번에 넣으면 인접 문제 경계를 뭉개는 경우가 있어
     작은 묶음으로 나누어 호출한다.
     """
-    total_pages = len(page_images)
+    total_pages = original_total_pages or len(page_images)
+    if source_page_indices is None:
+        source_page_indices = list(range(len(page_images)))
     all_results = []
     batch_size = max(1, int(batch_size or 1))
 
-    for start in range(0, total_pages, batch_size):
-        end = min(start + batch_size, total_pages)
+    for start in range(0, len(page_images), batch_size):
+        end = min(start + batch_size, len(page_images))
         batch = page_images[start:end]
+        batch_source_indices = source_page_indices[start:end]
+        batch_page_numbers = [idx + 1 for idx in batch_source_indices]
         if len(batch) == 1:
-            print(f"Gemini API page {start + 1}/{total_pages}...", file=sys.stderr)
+            print(f"Gemini API page {start + 1}/{len(page_images)}...", file=sys.stderr)
         else:
-            print(f"Gemini API pages {start + 1}-{end}/{total_pages}...", file=sys.stderr)
+            print(f"Gemini API pages {start + 1}-{end}/{len(page_images)}...", file=sys.stderr)
 
         raw = detect_questions_gemini(
             batch,
-            page_offset=start,
+            page_offset=batch_source_indices[0] if batch_source_indices else start,
             total_pages=total_pages,
+            page_numbers=batch_page_numbers,
             announce=False,
         )
         page_results = _coerce_page_results(raw)
@@ -252,16 +314,15 @@ def detect_questions_gemini_all(page_images, batch_size=1, verify_pass=True):
             if (
                 len(batch) == 1
                 or resolved is None
-                or resolved < start
-                or resolved >= end
+                or resolved not in batch_source_indices
             ) and local_idx < len(batch):
-                page_data["_source_page_index"] = start + local_idx
+                page_data["_source_page_index"] = batch_source_indices[local_idx]
 
             if verify_pass and local_idx < len(batch):
                 source_idx = _resolve_page_index(page_data, total_pages)
                 if source_idx is None:
-                    source_idx = start + local_idx
-                print(f"Gemini verify page {source_idx + 1}/{total_pages}...", file=sys.stderr)
+                    source_idx = batch_source_indices[local_idx]
+                print(f"Gemini verify page {start + local_idx + 1}/{len(page_images)}...", file=sys.stderr)
                 page_data = refine_questions_gemini(
                     batch[local_idx],
                     page_data,
@@ -375,6 +436,52 @@ def _normalize_box(box):
     return [y_min, x_min, y_max, x_max]
 
 
+def _normalize_region_type(value):
+    raw = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "image": "figure",
+        "diagram": "figure",
+        "graph": "figure",
+        "chart": "figure",
+        "data_table": "table",
+        "data_box": "table",
+        "stem": "passage",
+        "stimulus": "passage",
+        "source": "passage",
+        "text": "passage",
+        "experiment": "passage",
+        "lab": "passage",
+        "apparatus": "passage",
+        "setup": "passage",
+        "ignore": "exclude",
+        "decoration": "exclude",
+    }
+    raw = aliases.get(raw, raw)
+    return raw if raw in {"figure", "table", "passage", "exclude"} else None
+
+
+def _normalize_region(region, owner_number=None):
+    if not isinstance(region, dict):
+        return None
+    region_type = _normalize_region_type(region.get("type") or region.get("regionType"))
+    box = _normalize_box(region.get("box_2d") or region.get("bbox"))
+    if not region_type or box is None:
+        return None
+    out = {
+        "type": region_type,
+        "bbox": box,
+    }
+    if owner_number is not None:
+        out["ownerNumber"] = owner_number
+    label = region.get("label")
+    if isinstance(label, str) and label.strip():
+        out["label"] = label.strip()[:80]
+    instruction = region.get("instruction")
+    if isinstance(instruction, str) and instruction.strip():
+        out["instruction"] = instruction.strip()[:300]
+    return out
+
+
 def _expand_box_for_reading_area(box):
     """
     Gemini tends to trim workbook problems too tightly, especially around the
@@ -466,6 +573,11 @@ def main():
         help="좌우 반전(horizontal mirror). rotation 적용 후 PIL.ImageOps.mirror를 실행.",
     )
     parser.add_argument(
+        "--pages",
+        default=None,
+        help="Comma-separated zero-based PDF page indexes to process. Omit to process every page.",
+    )
+    parser.add_argument(
         "--batch-size",
         type=int,
         default=1,
@@ -500,16 +612,23 @@ def main():
     # Step 1: PDF → 페이지 이미지
     doc = fitz.open(pdf_path)
     total_pages = len(doc)
+    try:
+        selected_page_indices = parse_page_indices(args.pages, total_pages)
+    except ValueError as exc:
+        print(f"오류: {exc}", file=sys.stderr)
+        sys.exit(1)
     if not json_only:
         print(f"페이지: {total_pages}장")
 
     page_pils = []
-    for i in range(total_pages):
-        print(f"Rendering page {i+1}/{total_pages}...", file=sys.stderr)
-        pil_img = pdf_page_to_pil(doc[i], rotation=rotation, flip=flip)
+    page_pil_by_index = {}
+    for render_idx, page_index in enumerate(selected_page_indices):
+        print(f"Rendering page {render_idx+1}/{len(selected_page_indices)}...", file=sys.stderr)
+        pil_img = pdf_page_to_pil(doc[page_index], rotation=rotation, flip=flip)
         page_pils.append(pil_img)
+        page_pil_by_index[page_index] = pil_img
         if not json_only:
-            print(f"  Page {i+1}: {pil_img.width}x{pil_img.height}px")
+            print(f"  Page {page_index+1}: {pil_img.width}x{pil_img.height}px")
     doc.close()
 
     # Step 2: Gemini로 문제 영역 감지
@@ -517,6 +636,8 @@ def main():
         page_pils,
         batch_size=args.batch_size,
         verify_pass=not args.no_verify_pass,
+        source_page_indices=selected_page_indices,
+        original_total_pages=total_pages,
     )
     if not isinstance(result, list):
         print("오류: Gemini 응답이 페이지 배열 형식이 아닙니다.", file=sys.stderr)
@@ -537,7 +658,13 @@ def main():
                     "message": f"페이지 번호가 PDF 범위를 벗어나 건너뜀: {page_data.get('page')}",
                 })
                 continue
-            pil_img = page_pils[page_idx]
+            pil_img = page_pil_by_index.get(page_idx)
+            if pil_img is None:
+                warnings.append({
+                    "page": page_idx + 1,
+                    "message": f"선택하지 않은 페이지 결과를 건너뜀: {page_idx + 1}",
+                })
+                continue
             answer_page = page_data.get("answer_page", False)
 
             questions_out = []
@@ -565,11 +692,19 @@ def main():
                             "message": f"문제 번호를 해석하지 못해 건너뜀: {q.get('number')}",
                         })
                         continue
-                    questions_out.append({
+                    regions_out = []
+                    for raw_region in q.get("regions", []):
+                        region = _normalize_region(raw_region, owner_number=num)
+                        if region:
+                            regions_out.append(region)
+                    item = {
                         "number": num,
                         "kind": kind,
                         "bbox": box,
-                    })
+                    }
+                    if regions_out:
+                        item["regions"] = regions_out
+                    questions_out.append(item)
 
             questions_out.sort(key=lambda item: _reading_order_key_from_bbox(item["bbox"]))
             warnings.extend(_geometry_warnings(page_idx + 1, questions_out))
@@ -616,7 +751,10 @@ def main():
             continue
 
         problem_pages += 1
-        pil_img = page_pils[page_idx]
+        pil_img = page_pil_by_index.get(page_idx)
+        if pil_img is None:
+            print(f"  경고: 선택하지 않은 Page {page_num} 결과를 건너뜀", file=sys.stderr)
+            continue
 
         for q in page_data.get("questions", []):
             if not isinstance(q, dict):

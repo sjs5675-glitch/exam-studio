@@ -48,6 +48,8 @@ echo 서버 준비 대기 중...
 ping -n 2 127.0.0.1 >nul
 netstat -ano 2>nul | findstr ":3020" | findstr "LISTENING" >nul 2>nul
 if %errorlevel% neq 0 goto wait
+netstat -ano 2>nul | findstr ":3021 " | findstr "LISTENING" >nul 2>nul
+if %errorlevel% neq 0 goto wait
 
 start "" http://localhost:3020
 

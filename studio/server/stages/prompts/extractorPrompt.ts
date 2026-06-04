@@ -199,6 +199,9 @@ eq 값(및 explanation_table 의 script 값)은 반드시 센티넬 ${EQ_SENTINE
 
 - "bogi": 보기(ㄱ.ㄴ.ㄷ.) 박스. items[*].parts에 내용 채움.
 - "condition": 조건 박스 ((가)(나)(다) 또는 일반 조건). items[*].label + parts.
+  - 검은 테두리 안에 "물체의 질량: 2 kg", "처음 속력: 20 m/s", "충격량의 크기: 20 N·s"처럼 줄별 자료가 있으면 condition_box.type="condition"으로 추출한다.
+  - 줄 앞에 (가)/(나)/(다) 같은 라벨이 없으면 label=""로 두고, 줄 전체를 parts에 넣는다. 숫자+단위는 eq로 분리한다.
+  - 조건 박스 옆이나 안에 별도 그림/사진/실험 장치가 함께 있으면 condition_box와 별개로 has_figure=true 및 figure_info도 유지한다.
 - "empty_box": **이미지에 테두리 있는 빈 답안 박스가 실제로 그려져 있을 때만** 사용. 서술형(서답형)이라는 이유만으로 빈 박스를 만들지 말 것 — 박스가 안 보이면 condition_box=null. height(선택, 기본 5059) 추가 가능.
 - "proof": [ 증 명 ] 테이블. items[*].parts에 증명 줄별 내용.
 - "image_choice": 이미지 선지 조건 박스. items 구조.

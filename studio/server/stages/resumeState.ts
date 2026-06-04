@@ -157,8 +157,11 @@ async function detectFromCache(
   }
 
   // Check figure_status.json for figure stage completion.
-  const hasFigureStatus = await fileExists(cache.paths.figureStatus);
-  if (!hasFigureStatus) {
+  // Existence alone is not enough: targeted figure retries can leave a partial
+  // status file, so compare it against the cached problems that actually need
+  // figures.
+  const figureComplete = await isFigureStageComplete(cache, questionNumbers);
+  if (!figureComplete) {
     return { startStage: "figure", targetQuestions: questionNumbers };
   }
 
@@ -173,6 +176,85 @@ async function detectFromCache(
 
   // Default: start from checker (or repeat if already done).
   return { startStage: "checker", targetQuestions: questionNumbers };
+}
+
+interface FigureStatusCache {
+  status?: string;
+  questions?: Record<string, { status?: string; finalImage?: string }>;
+}
+
+async function isFigureStageComplete(
+  cache: StageCache,
+  questionNumbers: number[]
+): Promise<boolean> {
+  let parsed: FigureStatusCache | null;
+  try {
+    parsed = JSON.parse(await readFile(cache.paths.figureStatus, "utf8")) as FigureStatusCache;
+  } catch {
+    return false;
+  }
+  if (!parsed || parsed.status === "failed") return false;
+
+  const requiredFigures = await getRequiredFigureNumbers(cache, questionNumbers);
+  if (requiredFigures.length === 0) return true;
+
+  const questions = parsed.questions ?? {};
+  for (const n of requiredFigures) {
+    const q = questions[String(n)] ?? questions[pad(n)];
+    if (!q || (q.status !== "ok" && q.status !== "boundary_uncertain")) {
+      return false;
+    }
+    if (!(await figureOutputExists(cache, n, q.finalImage))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+async function getRequiredFigureNumbers(
+  cache: StageCache,
+  questionNumbers: number[]
+): Promise<number[]> {
+  const uniqueNumbers = [...new Set(questionNumbers)].sort((a, b) => a - b);
+  const entries = await Promise.all(
+    uniqueNumbers.map(async (n) => {
+      const [hasSolved, extracted] = await Promise.all([
+        fileExists(cache.solverResultPath(n)),
+        readJson(cache.extractorResultPath(n)),
+      ]);
+      if (!hasSolved || !extracted) return null;
+      const hasFigure = extracted.has_figure === true && Boolean(extracted.figure_info);
+      return hasFigure ? n : null;
+    })
+  );
+  return entries.filter((n): n is number => typeof n === "number");
+}
+
+async function figureOutputExists(
+  cache: StageCache,
+  n: number,
+  finalImage?: string
+): Promise<boolean> {
+  const defaultPath = path.join(cache.paths.examDir, "..", "..", "outputs", "images", `prob${n}_final.png`);
+  if (!finalImage) return fileExists(defaultPath);
+
+  const statusPath = path.isAbsolute(finalImage)
+    ? finalImage
+    : path.join(cache.paths.examDir, "..", "..", finalImage);
+  if (await fileExists(statusPath)) return true;
+  return fileExists(defaultPath);
+}
+
+async function readJson(filePath: string): Promise<Record<string, unknown> | null> {
+  try {
+    return JSON.parse(await readFile(filePath, "utf8")) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function pad(n: number): string {
+  return String(n).padStart(2, "0");
 }
 
 /**

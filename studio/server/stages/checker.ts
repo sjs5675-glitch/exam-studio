@@ -827,7 +827,7 @@ export function checkTextVocabulary(
 }
 
 function textNodes(xml: string): string[] {
-  return [...xml.matchAll(/<hp:t\b[^>]*>([\s\S]*?)<\/hp:t>/g)].map((match) => match[1]);
+  return [...xml.matchAll(/<hp:t\b(?![^>]*\/>)[^>]*>([\s\S]*?)<\/hp:t>/g)].map((match) => match[1]);
 }
 
 function equationScripts(xml: string): string[] {

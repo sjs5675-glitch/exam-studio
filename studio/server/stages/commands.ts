@@ -1,4 +1,5 @@
 import crossSpawn from "cross-spawn";
+import { resolvePythonCommand, shouldResolveAsPython } from "@/lib/server/python";
 import type { StageError } from "./types";
 
 export type StageCommandStatus = "success" | "non_zero_exit" | "timeout" | "spawn_error";
@@ -28,6 +29,9 @@ export interface StageCommandResult {
 export async function runStageCommand(options: StageCommandOptions): Promise<StageCommandResult> {
   const startedAt = Date.now();
   const args = options.args ?? [];
+  const command = shouldResolveAsPython(options.command)
+    ? resolvePythonCommand({ cwd: options.cwd })
+    : options.command;
 
   return new Promise((resolve) => {
     let settled = false;
@@ -38,7 +42,7 @@ export async function runStageCommand(options: StageCommandOptions): Promise<Sta
 
     // cross-spawn: Windows에서 python이 pyenv-win/MS Store 별칭 등 .bat/.cmd shim일 때도
     // 기본 spawn(shell:false)의 EINVAL 없이 안전하게 실행한다.
-    const child = crossSpawn(options.command, args, {
+    const child = crossSpawn(command, args, {
       cwd: options.cwd,
       // Force Python UTF-8 mode so Korean stdout/paths don't garble on Windows (CP949 default).
       env: {
@@ -82,7 +86,7 @@ export async function runStageCommand(options: StageCommandOptions): Promise<Sta
       options.signal?.removeEventListener("abort", onAbort);
 
       resolve({
-        command: options.command,
+        command,
         args,
         cwd: options.cwd,
         status,

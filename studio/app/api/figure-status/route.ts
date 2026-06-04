@@ -47,6 +47,8 @@ export async function GET() {
       success,
       failed,
       images,
+      progress: status.progress ?? null,
+      questions,
     });
   } catch {
     return NextResponse.json({ pending: false, done: false, success: [], failed: [], images: [] });

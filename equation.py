@@ -109,6 +109,7 @@ def _normalize_part(part: dict) -> dict:
         script = _comma_tilde(script)            # R-05
         script = _left_right_space(script)       # R-06
         script = _normalize_chemical_eq(script)
+        script = _normalize_equation_spacing(script)
         script = _fix_permutation_combination(script)  # R-08 (before R-07)
         script = _leading_underscore_to_lsub(script)  # R-07 (2-pass: after R-08)
         script = _enforce_rm_units(script)       # R-09
@@ -149,6 +150,27 @@ def _normalize_chemical_eq(script: str) -> str:
         prev = script
         script = adjacent_atoms.sub(r'\1\2', script)
 
+    return script
+
+
+def _normalize_equation_spacing(script: str) -> str:
+    """Remove spacing artifacts that make inline HWP equations look too wide."""
+    if not script:
+        return script
+    script = re.sub(r'(\d)\s*~\s*(?=rm\{)', r'\1 ', script)
+    script = re.sub(r'(\})\s*~\s*(?=rm\{)', r'\1 ', script)
+    script = re.sub(r'\s*~\s*(?=rm\{)', '~', script)
+    script = re.sub(r'(\d)\s*\.\s*(?=\d)', r'\1.', script)
+    script = re.sub(r'rm\{\s*\{([^{}]+)\}\s*\}', lambda m: f"rm{{{m.group(1).strip()}}}", script)
+    script = re.sub(r'([_^])\{\s*(rm\{[^{}]+\})\s*\}', r'\1{\2}', script)
+    script = re.sub(r'([_^])\{\s*([^{}]*?)\s*\}', lambda m: f"{m.group(1)}{{{m.group(2).strip()}}}", script)
+    script = re.sub(
+        r'(rm\{[^{}]+\}(?:\^\{?\d+\}?)?)\s*/\s*(rm\{[^{}]+\}(?:\^\{?\d+\}?)?)',
+        r'\1/\2',
+        script,
+    )
+    unit = r'rm\{[^{}]+\}(?:\^\{?\d+\}?)?'
+    script = re.sub(rf'({unit})\s+cdot\s+({unit})', r'\1·\2', script)
     return script
 
 
@@ -959,6 +981,7 @@ def xml_escape(s):
 
 def estimate_eq_width(script):
     """Rough estimate of equation width in HWPUNIT"""
+    script = _normalize_equation_spacing(str(script or ""))
     compact_width = _estimate_compact_rm_width(script)
     if compact_width is not None:
         return compact_width
@@ -1008,6 +1031,10 @@ def _estimate_compact_rm_width(script):
             total += 300
             i += 4
             continue
+        if ch == '·':
+            total += 180
+            i += 1
+            continue
         if ch in '{}':
             i += 1
             continue
@@ -1023,7 +1050,7 @@ def _estimate_compact_rm_width(script):
             total += 440
         i += 1
 
-    return min(max(int(total * 1.26) + 560, 900), 30000)
+    return min(max(int(total * 1.18) + 520, 900), 30000)
 
 
 def _compact_rm_visible_script(script):
@@ -1072,6 +1099,7 @@ def lineseg_params_for_eq(script):
 def make_equation_xml(script, eq_id=None, baseunit=1100, textcolor="#000000",
                       treat_as_char=1, baseline=85):
     """Generate <hp:equation> XML"""
+    script = _normalize_equation_spacing(str(script or ""))
     if eq_id is None:
         eq_id = next_eq_id()
     zorder = next_zorder()

@@ -1,10 +1,10 @@
 {
-  "name": "exam-studio",
+  "name": "exam-studio-v2-local",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3020",
-    "dev:sse": "tsx server/sse.ts",
+    "dev": "next dev -p 3030",
+    "dev:sse": "set SSE_PORT=3031&& tsx server/sse.ts",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

@@ -27,6 +27,9 @@ studio/inputs/시험지 제작/*.pdf
 
 # Generated outputs
 outputs/
+logs/
+temp/
+tmp_pdf_pages/
 
 # Exam Studio runtime
 .logs/
@@ -52,3 +55,4 @@ studio/.env.local
 
 # equation oracle 회귀 코퍼스 (PNKLMS 파생 사유 데이터 — 절대 커밋 금지, 로컬 전용)
 .equation-oracle/
+workspaces/concept_pdf_probe/

@@ -32,7 +32,7 @@ interface QuestionCacheState {
   extracted: boolean;
   solved: boolean;
   verified: boolean;
-  figure?: { status: FigurePhaseStatus; image?: string };
+  figure?: { status: FigurePhaseStatus; image?: string; finalImage?: string; error?: string };
 }
 
 async function scanCacheState(numbers: number[]): Promise<Record<number, QuestionCacheState>> {
@@ -42,27 +42,56 @@ async function scanCacheState(numbers: number[]): Promise<Record<number, Questio
     cacheFiles = new Set(entries);
   } catch { /* cache dir missing */ }
 
-  let figureStatus: { questions?: Record<string, { status?: FigurePhaseStatus; image?: string }> } = {};
+  let figureStatus: {
+    status?: string;
+    questions?: Record<string, { status?: FigurePhaseStatus; image?: string; finalImage?: string; error?: string }>;
+  } = {};
+  let hasFigureStatusFile = false;
   try {
     const raw = await readFile(FIGURE_STATUS_PATH, "utf-8");
     figureStatus = JSON.parse(raw);
+    hasFigureStatusFile = true;
   } catch { /* figure_status.json missing → no figure state */ }
 
   const result: Record<number, QuestionCacheState> = {};
   for (const n of numbers) {
     const padded = String(n).padStart(2, "0");
+    const extracted = cacheFiles.has(`q${padded}_extracted.json`);
     const state: QuestionCacheState = {
-      extracted: cacheFiles.has(`q${padded}_extracted.json`),
+      extracted,
       solved: cacheFiles.has(`q${padded}_solved.json`),
       verified: cacheFiles.has(`q${padded}_verified.json`),
     };
     const figQ = figureStatus.questions?.[String(n)] ?? figureStatus.questions?.[padded];
     if (figQ && figQ.status) {
-      state.figure = { status: figQ.status, ...(figQ.image ? { image: figQ.image } : {}) };
+      const image = figQ.image ?? figQ.finalImage;
+      state.figure = {
+        status: figQ.status,
+        ...(image ? { image } : {}),
+        ...(figQ.finalImage ? { finalImage: figQ.finalImage } : {}),
+        ...(figQ.error ? { error: figQ.error } : {}),
+      };
+    } else if (hasFigureStatusFile && extracted) {
+      const extractedData = await readExtractedQuestion(padded);
+      if (extractedData?.has_figure === true && extractedData.figure_info) {
+        state.figure = {
+          status: "failed",
+          error: "그림 결과가 누락되었습니다. 이 문제만 재생성하세요.",
+        };
+      }
     }
     result[n] = state;
   }
   return result;
+}
+
+async function readExtractedQuestion(padded: string): Promise<Record<string, unknown> | null> {
+  try {
+    const raw = await readFile(path.join(CACHE_DIR, `q${padded}_extracted.json`), "utf-8");
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
 }
 
 export async function GET() {
@@ -87,6 +116,7 @@ export async function GET() {
       .filter(Boolean)
       .map((m) => parseInt(m![1], 10))
       .sort((a, b) => a - b);
+    const allNumbers = [...new Set([...numbers, ...essayNumbers])].sort((a, b) => a - b);
 
     let cleanedFiles: string[] = [];
     try {
@@ -94,10 +124,10 @@ export async function GET() {
     } catch { /* no cleaned folder */ }
     const hasClean = cleanedFiles.some((f) => qRegex.test(f) || essayRegex.test(f));
 
-    const cacheState = await scanCacheState([...numbers, ...essayNumbers]);
+    const cacheState = await scanCacheState(allNumbers);
 
     return NextResponse.json({
-      count: numbers.length + essayNumbers.length,
+      count: allNumbers.length,
       numbers,
       essayNumbers,
       hasClean,

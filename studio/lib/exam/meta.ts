@@ -6,6 +6,7 @@ export type WorkbookBookType = "본문" | "시험대비" | "정답과 해설" | 
 export type ScienceSubject = "중등과학" | "통합과학" | "물리학" | "화학" | "생명과학" | "지구과학" | "기타";
 export type FigureMode = "original" | "grayscale" | "chatgpt-image2" | "auto";
 export type AnswerPolicy = "none" | "remove" | "blue_keep" | "answer_book_match" | "ai_generate";
+export type EndnoteMode = "answer_and_explanation" | "answer_only";
 
 /** 시험지 메타데이터 — 디스크/네트워크/메모리 단일 표준 (camelCase only). */
 export interface ExamMeta {
@@ -36,6 +37,7 @@ export interface ExamMeta {
   removePublisherBadges?: boolean;
   /** HWPX 문항 아래에 [중단원], [난이도] 메타 문단을 표시할지 여부. */
   showProblemMetadata?: boolean;
+  endnoteMode?: EndnoteMode;
   /** subject 코드(파일명용). 미지정 시 buildFilenameBase가 subject로 폴백. */
   subjectCode?: string;
   /** 지역 코드(파일명용). 빈 문자열 허용. */
@@ -138,6 +140,7 @@ export function normalizeExamMeta(meta: ExamMetaInput = {}): ExamMeta {
     removePageFooters: meta.removePageFooters ?? DEFAULT_EXAM_META.removePageFooters,
     removePublisherBadges: meta.removePublisherBadges ?? DEFAULT_EXAM_META.removePublisherBadges,
     showProblemMetadata: meta.showProblemMetadata ?? DEFAULT_EXAM_META.showProblemMetadata,
+    endnoteMode: meta.endnoteMode ?? DEFAULT_EXAM_META.endnoteMode,
   };
   complete.filenameBase = meta.filenameBase ?? buildFilenameBase(complete);
   return complete;
@@ -162,11 +165,12 @@ export const DEFAULT_EXAM_META: ExamMeta = {
   bookVolume: "1학기",
   outputVersion: "학생용",
   answerPolicy: "none",
-  figureMode: "original",
+  figureMode: "auto",
   removeProblemIds: true,
   removeImportanceTags: true,
   removeQrCodes: true,
   removePageFooters: true,
   removePublisherBadges: true,
   showProblemMetadata: false,
+  endnoteMode: "answer_and_explanation",
 };

@@ -54,18 +54,31 @@ def make_multiline_lineseg(line_starts, base_vertpos=0, vertsize=1000, textheigh
     return f'<hp:linesegarray>{"".join(entries)}</hp:linesegarray>'
 
 
+def _coerce_condition_parts(value):
+    if isinstance(value, list):
+        return [part if isinstance(part, dict) else {"t": str(part)} for part in value]
+    if value is None:
+        return []
+    return [{"t": str(value)}]
+
+
 def _fit_condition_rect_width(rect_xml, target_width=WORKBOOK_COLUMN_WIDTH):
     scale_x = target_width / CONDITION_RECT_ORG_WIDTH
     rect_xml = re.sub(r'(<hp:curSz\b[^>]*\bwidth=")\d+(")', rf'\g<1>{target_width}\2', rect_xml, count=1)
     rect_xml = re.sub(r'(\bcenterX=")\d+(")', rf'\g<1>{target_width // 2}\2', rect_xml, count=1)
     rect_xml = re.sub(r'(<hc:scaMatrix\b[^>]*\be1=")[^"]+(")', rf'\g<1>{scale_x:.6f}\2', rect_xml, count=1)
     rect_xml = re.sub(r'(<hp:drawText\b[^>]*\blastWidth=")\d+(")', rf'\g<1>{target_width}\2', rect_xml, count=1)
-    rect_xml = re.sub(r'(<hp:sz\b[^>]*\bwidth=")\d+(")', rf'\g<1>{target_width}\2', rect_xml, count=1)
+    head, marker, tail = rect_xml.partition('</hp:drawText>')
+    if marker:
+        tail = re.sub(r'(<hp:sz\b[^>]*\bwidth=")\d+(")', rf'\g<1>{target_width}\2', tail, count=1)
+        rect_xml = head + marker + tail
+    else:
+        rect_xml = re.sub(r'(<hp:sz\b[^>]*\bwidth=")\d+(")', rf'\g<1>{target_width}\2', rect_xml, count=1)
     return rect_xml
 
 
 def build_condition_item_content(label, parts, max_units=CONDITION_LINE_MAX_UNITS):
-    parts = normalize_parts(parts or [])
+    parts = normalize_parts(_coerce_condition_parts(parts))
     content = ""
     max_eq = DEFAULT_LINE_PARAMS
     line_starts = [0]
@@ -90,12 +103,17 @@ def build_condition_item_content(label, parts, max_units=CONDITION_LINE_MAX_UNIT
             if not ch.isspace():
                 has_body = True
 
-    label_text = f"{label} "
-    content += f'<hp:t>{xml_escape(label_text)}</hp:t>'
-    account_text(label_text)
+    label_text = f"{label} " if label else ""
+    if label_text:
+        content += f'<hp:t>{xml_escape(label_text)}</hp:t>'
+        account_text(label_text)
 
     for part in parts:
-        if "eq" in part:
+        if not isinstance(part, dict):
+            continue
+        if part.get("br") is True:
+            start_new_line()
+        elif "eq" in part:
             eq_script = part["eq"]
             unit_width = estimate_eq_width(eq_script)
             if has_body and line_units + unit_width > max_units:
@@ -117,9 +135,34 @@ def build_condition_item_content(label, parts, max_units=CONDITION_LINE_MAX_UNIT
     return content, max_eq, line_starts
 
 
+def _condition_items(condition_box):
+    items = condition_box.get("items") or []
+    if items:
+        return [
+            {
+                "label": item.get("label", ""),
+                "parts": _coerce_condition_parts(item.get("parts", [])),
+            }
+            for item in items
+            if isinstance(item, dict)
+        ]
+
+    if condition_box.get("parts"):
+        return [{"label": "", "parts": _coerce_condition_parts(condition_box.get("parts", []))}]
+
+    lines = condition_box.get("lines") or condition_box.get("rows") or []
+    coerced = []
+    for line in lines:
+        if isinstance(line, list):
+            coerced.append({"label": "", "parts": _coerce_condition_parts(line)})
+        else:
+            coerced.append({"label": "", "parts": [{"t": str(line)}]})
+    return coerced
+
+
 def make_condition_rect(condition_box, base_path):
     """Generate condition box (hp:rect) for (가)/(나)/(다) items"""
-    items = condition_box["items"]
+    items = _condition_items(condition_box)
     rect_id = next_eq_id()
     zorder = next_zorder()
     iid = next_inst_id()
@@ -127,8 +170,10 @@ def make_condition_rect(condition_box, base_path):
     items_content = ""
     vpos = 0
     for item in items:
-        label = item["label"]
-        item_run_content, max_eq, line_starts = build_condition_item_content(label, item["parts"])
+        label = item.get("label", "")
+        item_run_content, max_eq, line_starts = build_condition_item_content(label, item.get("parts", []))
+        if not item_run_content:
+            item_run_content = '<hp:t/>'
         lineseg = make_multiline_lineseg(
             line_starts,
             base_vertpos=vpos,
@@ -167,7 +212,7 @@ def make_ganada_table(condition_box, base_path):
     Uses condition_rect_template.xml with paraPrIDRef=11 for interior items,
     matching the styling of ganada_table.xml.
     """
-    items = condition_box["items"]
+    items = _condition_items(condition_box)
     n_items = len(items)
     rect_id = next_eq_id()
     zorder = next_zorder()
@@ -176,14 +221,16 @@ def make_ganada_table(condition_box, base_path):
     items_content = ""
     vpos = 0
     for idx, item in enumerate(items):
-        label = item["label"]
+        label = item.get("label", "")
         # Interior items (not first and not last) use paraPrIDRef="11"
         if 0 < idx < n_items - 1:
             para_pr = "11"
         else:
             para_pr = "0"
 
-        item_run_content, max_eq, line_starts = build_condition_item_content(label, item["parts"])
+        item_run_content, max_eq, line_starts = build_condition_item_content(label, item.get("parts", []))
+        if not item_run_content:
+            item_run_content = '<hp:t/>'
         lineseg = make_multiline_lineseg(
             line_starts,
             base_vertpos=vpos,

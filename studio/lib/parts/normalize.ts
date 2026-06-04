@@ -147,6 +147,7 @@ function normalizePart(part: Part): Part {
     s = commaTilde(s);                    // R-05
     s = leftRightSpace(s);               // R-06
     s = normalizeChemicalEq(s);
+    s = normalizeEquationSpacing(s);
     s = fixPermutationCombination(s);    // R-08 (before R-07: 2-pass)
     s = leadingUnderscoreToLsub(s);      // R-07 (2-pass: applied after R-08)
     s = enforceRmUnits(s);               // R-09 (eq-side unit enforcement)
@@ -182,6 +183,23 @@ function normalizeChemicalEq(script: string): string {
     s = s.replace(adjacentAtoms, "$1$2");
   }
 
+  return s;
+}
+
+function normalizeEquationSpacing(script: string): string {
+  let s = script.replace(/(\d)\s*~\s*(?=rm\{)/g, "$1 ");
+  s = s.replace(/(\})\s*~\s*(?=rm\{)/g, "$1 ");
+  s = s.replace(/\s*~\s*(?=rm\{)/g, "~");
+  s = s.replace(/(\d)\s*\.\s*(?=\d)/g, "$1.");
+  s = s.replace(/rm\{\s*\{([^{}]+)\}\s*\}/g, (_match, body: string) => `rm{${body.trim()}}`);
+  s = s.replace(/([_^])\{\s*(rm\{[^{}]+\})\s*\}/g, "$1{$2}");
+  s = s.replace(/([_^])\{\s*([^{}]*?)\s*\}/g, (_match, marker: string, body: string) => `${marker}{${body.trim()}}`);
+  s = s.replace(
+    /(rm\{[^{}]+\}(?:\^\{?\d+\}?)?)\s*\/\s*(rm\{[^{}]+\}(?:\^\{?\d+\}?)?)/g,
+    "$1/$2",
+  );
+  const unit = String.raw`rm\{[^{}]+\}(?:\^\{?\d+\}?)?`;
+  s = s.replace(new RegExp(`(${unit})\\s+cdot\\s+(${unit})`, "g"), "$1·$2");
   return s;
 }
 

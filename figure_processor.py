@@ -17,6 +17,7 @@ CLI usage:
 
 import argparse
 from collections import deque
+from datetime import datetime
 import io
 import json
 import sys
@@ -282,7 +283,12 @@ def process_figure(
     if gen_data is None:
         err_msg = f"{provider_label} generation failed: {gen_error}" if gen_error else f"{provider_label} generation failed"
         print(f"  [Q{n}] 생성 실패: {gen_error}")
-        return {"status": "failed", "error": err_msg}
+        print(f"  [Q{n}] 원본 crop으로 폴백 → {final_path}")
+        trim_image(str(ref_path), str(final_path))
+        fallback_status = _make_q_status(True)
+        fallback_status["fallback"] = "crop"
+        fallback_status["fallbackReason"] = err_msg
+        return fallback_status
 
     gen_path = cache_dir / f"prob{n}_generated.png"
     gen_path.write_bytes(gen_data)
@@ -310,17 +316,45 @@ def _derive_top_status(questions: dict[str, dict]) -> str:
     return "partial"
 
 
-def _status_with_summary(questions: dict[str, dict]) -> dict:
-    top_status = _derive_top_status(questions)
+def _status_with_summary(
+    questions: dict[str, dict],
+    progress: dict | None = None,
+    override_status: str | None = None,
+) -> dict:
+    top_status = override_status or _derive_top_status(questions)
     success = sorted(int(k) for k, v in questions.items() if v.get("status") in {"ok", "boundary_uncertain"})
     failed = sorted(int(k) for k, v in questions.items() if v.get("status") == "failed")
-    return {
+    result = {
         "status": top_status,
         "completed": top_status == "done",
         "success": success,
         "failed": failed,
         "questions": questions,
     }
+    if progress is not None:
+        result["progress"] = {
+            **progress,
+            "updatedAt": datetime.now().isoformat(timespec="seconds"),
+        }
+    return result
+
+
+def _write_status(
+    path: Path,
+    questions: dict[str, dict],
+    progress: dict | None = None,
+    override_status: str | None = None,
+) -> dict:
+    status_data = _status_with_summary(
+        questions,
+        progress=progress,
+        override_status=override_status,
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(status_data, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return status_data
 
 
 def main() -> None:
@@ -407,9 +441,18 @@ def main() -> None:
     if not figures:
         print("그림 있는 문제 없음, 종료")
         existing = _read_status(status_out_path) if args.question is not None else {}
-        status_data = _status_with_summary(existing.get("questions", {}))
-        status_out_path.write_text(
-            json.dumps(status_data, ensure_ascii=False, indent=2), encoding="utf-8"
+        _write_status(
+            status_out_path,
+            existing.get("questions", {}),
+            progress={
+                "phase": "completed",
+                "total": 0,
+                "currentIndex": 0,
+                "completed": 0,
+                "currentQuestion": None,
+                "percent": 100,
+                "message": "그림이 필요한 문제가 없습니다.",
+            },
         )
         return
 
@@ -418,33 +461,87 @@ def main() -> None:
         f"(provider={args.image_provider}, no_regen={args.no_regen}, "
         f"grayscale={args.grayscale}, remove_blue_text={args.remove_blue_text})"
     )
+    base_questions = dict(_read_status(status_out_path).get("questions", {})) if args.question is not None else {}
     questions_status: dict[str, dict] = {}
+    total_figures = len(figures)
 
-    for prob in figures:
-        n = prob["number"]
-        q_result = process_figure(
-            provider,
-            prob,
-            cache_dir,
-            question_images_dir,
-            output_dir,
-            args.no_regen,
-            args.grayscale,
-            args.remove_blue_text,
+    def publish_progress(
+        phase: str,
+        current_index: int,
+        current_question: int | None,
+        message: str,
+    ) -> None:
+        merged = dict(base_questions)
+        merged.update(questions_status)
+        completed_count = sum(
+            1 for q in questions_status.values()
+            if q.get("status") in {"ok", "boundary_uncertain", "failed"}
         )
+        percent = 100 if total_figures == 0 else round((completed_count / total_figures) * 100)
+        _write_status(
+            status_out_path,
+            merged,
+            progress={
+                "phase": phase,
+                "total": total_figures,
+                "currentIndex": current_index,
+                "completed": completed_count,
+                "currentQuestion": current_question,
+                "percent": percent,
+                "message": message,
+            },
+            override_status="running",
+        )
+
+    publish_progress("starting", 0, None, f"그림 처리 준비 중 (0/{total_figures})")
+
+    for idx, prob in enumerate(figures, start=1):
+        n = prob["number"]
+        questions_status[str(n)] = {
+            "status": "running",
+            "message": f"Q{n} 그림 처리 중",
+        }
+        publish_progress("processing", idx, n, f"Q{n} 그림 처리 중 ({idx}/{total_figures})")
+        try:
+            q_result = process_figure(
+                provider,
+                prob,
+                cache_dir,
+                question_images_dir,
+                output_dir,
+                args.no_regen,
+                args.grayscale,
+                args.remove_blue_text,
+            )
+        except Exception as exc:
+            print(f"  [Q{n}] 처리 실패: {exc}")
+            q_result = {"status": "failed", "error": str(exc)}
         questions_status[str(n)] = q_result
+        publish_progress("processed", idx, n, f"Q{n} 그림 처리 완료 ({idx}/{total_figures})")
 
     if args.question is not None:
-        existing = _read_status(status_out_path)
-        merged_questions = dict(existing.get("questions", {}))
+        merged_questions = dict(base_questions)
         merged_questions.update(questions_status)
     else:
         merged_questions = questions_status
 
-    status_data = _status_with_summary(merged_questions)
-
-    status_out_path.write_text(
-        json.dumps(status_data, ensure_ascii=False, indent=2), encoding="utf-8"
+    final_success = sum(
+        1 for q in questions_status.values()
+        if q.get("status") in {"ok", "boundary_uncertain"}
+    )
+    final_failed = sum(1 for q in questions_status.values() if q.get("status") == "failed")
+    status_data = _write_status(
+        status_out_path,
+        merged_questions,
+        progress={
+            "phase": "completed",
+            "total": total_figures,
+            "currentIndex": total_figures,
+            "completed": total_figures,
+            "currentQuestion": None,
+            "percent": 100,
+            "message": f"그림 처리 완료: 성공 {final_success}, 실패 {final_failed}",
+        },
     )
 
     print(f"\n완료: status={status_data['status']}")

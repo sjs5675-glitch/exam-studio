@@ -15,6 +15,7 @@ const BASE_DIR = getDataRoot();
 const EXAM_DIR = path.join(BASE_DIR, "inputs", "시험지 제작");
 const CACHE_DIR = path.join(EXAM_DIR, ".v3cache");
 const IMAGES_DIR = path.join(EXAM_DIR, "question_images");
+const HISTORY_DIR = path.join(EXAM_DIR, ".history");
 const OUTPUTS_IMAGES_DIR = path.join(BASE_DIR, "outputs", "images");
 const CLEANING_STATUS_PATH = path.join(CACHE_DIR, "cleaning_status.json");
 const IMAGE_CLEANER_LOCK_PATH = imageCleanerLockPath(CLEANING_STATUS_PATH);
@@ -51,6 +52,22 @@ async function renameWithRetry(from: string, to: string, attempts = 6): Promise<
       if (!transient || i === attempts - 1) throw err;
       await new Promise((resolve) => setTimeout(resolve, 150 * (i + 1))); // 150,300,…,750ms
     }
+  }
+}
+
+async function archivePreviousRun(oldCacheDir: string, oldImagesDir: string, txid: string): Promise<void> {
+  const hasOldCache = await exists(oldCacheDir);
+  const hasOldImages = await exists(oldImagesDir);
+  if (!hasOldCache && !hasOldImages) return;
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const archiveDir = path.join(HISTORY_DIR, `${stamp}_${txid}`);
+  await mkdir(archiveDir, { recursive: true });
+  if (hasOldCache) {
+    await renameWithRetry(oldCacheDir, path.join(archiveDir, ".v3cache"));
+  }
+  if (hasOldImages) {
+    await renameWithRetry(oldImagesDir, path.join(archiveDir, "question_images"));
   }
 }
 
@@ -222,15 +239,13 @@ export async function POST(req: NextRequest) {
     await renameWithRetry(nextImagesDir, IMAGES_DIR);
     newImagesCommitted = true;
 
-    // old cache/images 삭제 — commit 은 이미 끝났으므로 best-effort. 잠겨서 못 지워도
-    // 정상 commit 을 rollback 하지 않는다(다음 작업 시 새 txid 로 다시 시도/누적 정리).
+    // old cache/images 보존 — "결과 불러오기"에서 이전 작업을 선택할 수 있게 보관한다.
     try {
-      if (await exists(oldCacheDir)) await rm(oldCacheDir, { recursive: true, force: true });
-      if (await exists(oldImagesDir)) await rm(oldImagesDir, { recursive: true, force: true });
-    } catch (oldCleanupErr) {
+      await archivePreviousRun(oldCacheDir, oldImagesDir, txid);
+    } catch (archiveErr) {
       console.warn(
-        `[create/start] old dir cleanup failed (commit kept): ${
-          oldCleanupErr instanceof Error ? oldCleanupErr.message : String(oldCleanupErr)
+        `[create/start] old dir archive failed (commit kept): ${
+          archiveErr instanceof Error ? archiveErr.message : String(archiveErr)
         }`
       );
     }

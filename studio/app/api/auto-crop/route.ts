@@ -6,9 +6,11 @@ import { readRuntimeEnv } from "@/lib/server/runtimeEnv";
 import { normalizePdfRotation } from "@/lib/cropper/coords";
 import { getDataRoot } from "@/lib/server/paths";
 import { isImageProviderId, type ImageProviderId } from "@/lib/ai/settings";
+import { resolveAutoCropTimeoutMs } from "@/lib/server/autoCropJobs";
+import { resolvePythonCommand } from "@/lib/server/python";
 import type { AutoCropMode } from "@/lib/cropper/types";
 
-export const maxDuration = 1800;
+export const maxDuration = 21600;
 
 const execFileAsync = promisify(execFile);
 const BASE_DIR = getDataRoot();
@@ -18,13 +20,26 @@ const SCRIPT_BY_PROVIDER: Record<ImageProviderId, string> = {
   "codex-cli": "codex_crop.py",
 };
 
-const TIMEOUT_BY_PROVIDER: Record<ImageProviderId, number> = {
-  gemini: 1800000,
-  "codex-cli": 1800000,
-};
-
 function normalizeAutoCropMode(value: unknown): AutoCropMode {
   return value === "fast" ? "fast" : "accurate";
+}
+
+function normalizeIncludedPages(value: unknown, totalPages?: number): number[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value)) throw new Error("includedPages must be an array");
+  const pages: number[] = [];
+  const seen = new Set<number>();
+  for (const raw of value) {
+    const page = Number(raw);
+    if (!Number.isInteger(page) || page < 0) throw new Error("includedPages must contain zero-based page indexes");
+    if (totalPages !== undefined && page >= totalPages) throw new Error("includedPages contains a page outside the PDF");
+    if (!seen.has(page)) {
+      seen.add(page);
+      pages.push(page);
+    }
+  }
+  if (pages.length === 0) throw new Error("includedPages must include at least one page");
+  return pages.sort((a, b) => a - b);
 }
 
 export async function POST(req: NextRequest) {
@@ -37,6 +52,8 @@ export async function POST(req: NextRequest) {
       flip = false,
       provider: rawProvider = "gemini",
       mode: rawMode = "accurate",
+      totalPages: rawTotalPages,
+      includedPages: rawIncludedPages,
     } = body;
 
     if (!pdfPath || typeof pdfPath !== "string") {
@@ -66,14 +83,34 @@ export async function POST(req: NextRequest) {
       );
     }
     provider = rawProvider;
+    const totalPages = rawTotalPages === undefined ? undefined : Number(rawTotalPages);
+    if (totalPages !== undefined && (!Number.isFinite(totalPages) || totalPages <= 0)) {
+      return NextResponse.json(
+        { error: "totalPages must be a positive number" },
+        { status: 400 },
+      );
+    }
+    let includedPages: number[] | undefined;
+    try {
+      includedPages = normalizeIncludedPages(
+        rawIncludedPages,
+        totalPages === undefined ? undefined : Math.trunc(totalPages),
+      );
+    } catch (err) {
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : "includedPages is invalid" },
+        { status: 400 },
+      );
+    }
     const rotation = normalizePdfRotation(rotationValue);
     const fullPath = path.join(BASE_DIR, pdfPath);
     const scriptPath = path.join(BASE_DIR, "workspaces", "crop", SCRIPT_BY_PROVIDER[provider]);
 
-    const pythonCmd = process.platform === "win32" ? "python" : "python3";
+    const pythonCmd = resolvePythonCommand({ baseDir: BASE_DIR });
 
     const pythonArgs = [scriptPath, fullPath, "--json-only", "--rotation", String(rotation)];
     if (flip) pythonArgs.push("--flip");
+    if (includedPages?.length) pythonArgs.push("--pages", includedPages.join(","));
     const mode = normalizeAutoCropMode(rawMode);
     if (provider === "gemini") {
       if (mode === "fast") {
@@ -88,7 +125,11 @@ export async function POST(req: NextRequest) {
       pythonCmd,
       pythonArgs,
       {
-        timeout: TIMEOUT_BY_PROVIDER[provider],
+        timeout: resolveAutoCropTimeoutMs({
+          provider,
+          mode,
+          totalPages: includedPages?.length ?? (totalPages === undefined ? undefined : Math.trunc(totalPages)),
+        }),
         maxBuffer: 16 * 1024 * 1024,
         env: {
           ...process.env,

@@ -1,16 +1,16 @@
 import { NextRequest } from "next/server";
 import { type SSEEvent } from "@/lib/claude";
-import { readFile, writeFile, readdir } from "fs/promises";
+import { readFile, writeFile, readdir, rm } from "fs/promises";
 import path from "path";
 import { existsSync } from "fs";
 import { getDataRoot, getJobsDir } from "@/lib/server/paths";
 import { runStageOrchestrator, type OrchestratorResult } from "@/server/stages/orchestrator";
 import { normalizeStageOverrides, isImageProviderId, type StageOverrideMap, type ImageProviderId } from "@/lib/ai/settings";
 import { normalizeProviderId, type AIProviderId } from "@/lib/ai";
-import { createStageCache } from "@/server/stages/cache";
-import { cleanupFromStage } from "@/server/stages/cleanup";
+import { createStageCache, type StageCache } from "@/server/stages/cache";
+import { cleanupFromStage, type CleanupResult } from "@/server/stages/cleanup";
 import type { ResumeStage } from "@/server/stages/resumeCommand";
-import type { FigureMode } from "@/lib/exam/meta";
+import type { ExamMetaInput, FigureMode } from "@/lib/exam/meta";
 
 const RESUME_STAGES: readonly ResumeStage[] = [
   "extractor",
@@ -81,6 +81,52 @@ function parseResumeArgs(instruction: string): ResumeArgs {
   }
 
   return { resumeFrom, targetQuestions };
+}
+
+async function scanQuestionImageNumbers(questionImagesDir: string): Promise<number[]> {
+  try {
+    const files = await readdir(questionImagesDir);
+    return files
+      .map((f) => {
+        const m = /^q(\d{2,})\.(png|jpg|jpeg)$/i.exec(f);
+        return m ? parseInt(m[1], 10) : NaN;
+      })
+      .filter((n) => !isNaN(n))
+      .sort((a, b) => a - b);
+  } catch {
+    return [];
+  }
+}
+
+function uniqueSorted(nums: number[]): number[] {
+  return [...new Set(nums)].sort((a, b) => a - b);
+}
+
+async function cleanupTargetedFigureOutputs(
+  cache: StageCache,
+  questionNums: number[]
+): Promise<CleanupResult> {
+  const deleted: string[] = [];
+  const skipped: string[] = [];
+  const outputsImagesDir = path.join(cache.paths.examDir, "..", "..", "outputs", "images");
+
+  for (const n of questionNums) {
+    const candidates = [
+      path.join(outputsImagesDir, `prob${n}_final.png`),
+      path.join(cache.paths.cacheDir, `prob${n}_ref.jpg`),
+      path.join(cache.paths.cacheDir, `prob${n}_generated.png`),
+    ];
+    for (const filePath of candidates) {
+      if (!existsSync(filePath)) {
+        skipped.push(filePath);
+        continue;
+      }
+      await rm(filePath, { force: true });
+      deleted.push(filePath);
+    }
+  }
+
+  return { deleted, skipped };
 }
 
 /** Persist orchResult back to the job file, swallowing write errors. */
@@ -160,7 +206,10 @@ export async function POST(
 ) {
   try {
     const { jobId } = await params;
-    const { instruction } = (await req.json()) as { instruction: string };
+    const { instruction, meta: bodyMeta } = (await req.json()) as {
+      instruction: string;
+      meta?: ExamMetaInput;
+    };
 
     if (!instruction?.trim()) {
       return new Response(JSON.stringify({ error: "No instruction" }), {
@@ -179,6 +228,14 @@ export async function POST(
     }
 
     const job = JSON.parse(await readFile(jobFile, "utf-8")) as Record<string, unknown>;
+
+    if (bodyMeta && typeof bodyMeta === "object") {
+      job.meta = {
+        ...((job.meta as Record<string, unknown> | undefined) ?? {}),
+        ...bodyMeta,
+      };
+      if (typeof bodyMeta.figureMode === "string") job.figureMode = bodyMeta.figureMode;
+    }
 
     const stageOverrides: StageOverrideMap = normalizeStageOverrides(
       (job.stageOverrides as Record<string, unknown>) ?? {}
@@ -211,6 +268,7 @@ export async function POST(
     const { resumeFrom, targetQuestions } = isResumeCommand
       ? parseResumeArgs(instruction)
       : { resumeFrom: "extractor", targetQuestions: undefined };
+    const resumeStage = isResumeCommand ? asResumeStage(resumeFrom) : null;
 
     const questionImagesDir = path.join(
       BASE_DIR,
@@ -219,22 +277,15 @@ export async function POST(
       "question_images"
     );
 
-    // Collect question numbers: prefer --q list, else scan directory
-    let questionNumbers: number[] = targetQuestions ?? [];
-    if (questionNumbers.length === 0) {
-      try {
-        const files = await readdir(questionImagesDir);
-        questionNumbers = files
-          .map((f) => {
-            const m = /^q(\d{2})\.png$/.exec(f);
-            return m ? parseInt(m[1], 10) : NaN;
-          })
-          .filter((n) => !isNaN(n))
-          .sort((a, b) => a - b);
-      } catch {
-        // question_images dir may not exist yet — orchestrator will handle gracefully
-      }
-    }
+    const allQuestionNumbers = await scanQuestionImageNumbers(questionImagesDir);
+    const targetedFigureRetry =
+      resumeStage === "figure" && targetQuestions !== undefined && targetQuestions.length > 0;
+
+    // Collect question numbers. A targeted figure retry still needs the full
+    // solved cache context so exam_data.json does not get truncated to one Q.
+    let questionNumbers: number[] = targetedFigureRetry
+      ? uniqueSorted([...allQuestionNumbers, ...(targetQuestions ?? [])])
+      : (targetQuestions ?? allQuestionNumbers);
 
     // If still empty, fall back to a sensible default so orchestrator can proceed
     if (questionNumbers.length === 0) {
@@ -264,10 +315,12 @@ export async function POST(
 
       try {
         if (isResumeCommand) {
-          const stage = asResumeStage(resumeFrom);
+          const stage = resumeStage;
           if (stage) {
             const cache = createStageCache(BASE_DIR);
-            const result = await cleanupFromStage(cache, questionNumbers, stage);
+            const result = targetedFigureRetry
+              ? await cleanupTargetedFigureOutputs(cache, targetQuestions ?? [])
+              : await cleanupFromStage(cache, questionNumbers, stage);
             const deletedCount = result.deleted.length;
             if (deletedCount > 0) {
               send({
@@ -282,7 +335,7 @@ export async function POST(
             }
           }
         }
-        const stageForStop = isResumeCommand ? asResumeStage(resumeFrom) : null;
+        const stageForStop = resumeStage;
         const stopAfterStage = stageForStop && targetQuestions && targetQuestions.length > 0
           ? stopAfterFor(stageForStop)
           : undefined;

@@ -9,6 +9,8 @@ export interface QuestionFigureResult {
   status: "ok" | "failed" | "boundary_uncertain";
   /** 생성된 그림 파일의 경로 (있을 때) */
   image?: string;
+  /** figure_status.json 원본 finalImage 경로. image와 동일하게 쓰되 후방호환을 위해 둘 다 허용. */
+  finalImage?: string;
   /** 실패 시 에러 메시지 */
   error?: string;
 }

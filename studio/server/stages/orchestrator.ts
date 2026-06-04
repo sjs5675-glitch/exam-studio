@@ -420,6 +420,7 @@ export async function runStageOrchestrator(
           examMeta: input.meta,
           cache,
           provider: getProviderForStage("create.extractor", stageOverrides, input.defaultProvider),
+          cwd: input.baseDir,
           signal,
         });
         onLeave("extractor", n, r.status === "completed" ? "completed" : "failed");
@@ -488,6 +489,7 @@ export async function runStageOrchestrator(
           examMeta: input.meta,
           cache,
           provider: getProviderForStage("create.solver", stageOverrides, input.defaultProvider),
+          cwd: input.baseDir,
           signal,
         });
         onLeave("solver", n, r.status === "completed" ? "completed" : "failed");
@@ -586,6 +588,7 @@ export async function runStageOrchestrator(
               examMeta: input.meta,
               cache,
               provider: solverProvider,
+              cwd: input.baseDir,
               signal,
             })
           );
@@ -618,6 +621,7 @@ export async function runStageOrchestrator(
               examMeta: input.meta,
               cache,
               provider: verifierProvider,
+              cwd: input.baseDir,
               signal,
             })
           );
@@ -817,18 +821,26 @@ export async function runStageOrchestrator(
     // (스코프 좁힌 per-question rerun 에서 exam_data.json 을 truncated 상태로 덮는 부작용 회피)
     if (!checkAborted() && stillUnder("figure")) {
       await persistTelemetry(input, providerTelemetry, "running");
-      const successfulQuestionNumbers = questionNumbers.filter((n) => !failedQuestionNumbers.has(n));
+      const {
+        numbers: successfulQuestionNumbers,
+        skipped: skippedQuestionNumbers,
+      } = await collectBuildableQuestionNumbers(cache, questionNumbers, failedQuestionNumbers);
       if (successfulQuestionNumbers.length === 0) {
         send(logEvent("system", "성공한 문제가 없어 exam_data.json을 생성할 수 없습니다.", "error"));
         return failed(providerTelemetry, "모든 문제 처리 실패");
       }
       try {
         await buildExamDataJson({ cache, meta, questionNumbers: successfulQuestionNumbers });
-        const skippedCount = questionNumbers.length - successfulQuestionNumbers.length;
+        const skippedCount = skippedQuestionNumbers.length;
         const summary = skippedCount > 0
           ? `exam_data.json 생성 완료 (${successfulQuestionNumbers.length}/${questionNumbers.length}, ${skippedCount}개 누락)`
           : "exam_data.json 생성 완료";
         send(logEvent("system", summary));
+        if (skippedQuestionNumbers.length > 0) {
+          const sample = skippedQuestionNumbers.slice(0, 20).join(", ");
+          const suffix = skippedQuestionNumbers.length > 20 ? "..." : "";
+          send(logEvent("system", `exam_data.json 재구성에서 제외된 문제: ${sample}${suffix}`, "warn"));
+        }
       } catch (err) {
         send(logEvent("system", `exam_data.json 생성 실패: ${err instanceof Error ? err.message : String(err)}`, "error"));
         return failed(providerTelemetry, "exam_data.json 생성 실패");
@@ -1067,6 +1079,28 @@ async function fileExists(filePath: string): Promise<boolean> {
   }
 }
 
+async function collectBuildableQuestionNumbers(
+  cache: StageCache,
+  questionNumbers: number[],
+  failedQuestionNumbers: Set<number>
+): Promise<{ numbers: number[]; skipped: number[] }> {
+  const uniqueNumbers = [...new Set(questionNumbers)].sort((a, b) => a - b);
+  const entries = await Promise.all(
+    uniqueNumbers.map(async (n) => {
+      if (failedQuestionNumbers.has(n)) return { n, ok: false };
+      const [hasExtracted, hasSolved] = await Promise.all([
+        fileExists(cache.extractorResultPath(n)),
+        fileExists(cache.solverResultPath(n)),
+      ]);
+      return { n, ok: hasExtracted && hasSolved };
+    })
+  );
+  return {
+    numbers: entries.filter((entry) => entry.ok).map((entry) => entry.n),
+    skipped: entries.filter((entry) => !entry.ok).map((entry) => entry.n),
+  };
+}
+
 /**
  * build_status.json에서 직전 builder 산출 HWPX 경로를 복원한다.
  * resume이 builder를 건너뛰고 checker로 바로 진입한 경우에 사용한다.
@@ -1220,27 +1254,59 @@ async function runTargetedFigureStage(
   const targets = input.targetQuestionNumbers;
 
   if (!targets || targets.length === 0) {
-    return runFigureStage(input);
+    const figureNumbers = await readFigureQuestionNumbers(input.examDataPath);
+    if (figureNumbers.length <= 1) {
+      return runFigureStage(input);
+    }
+    return runFigureQuestionList(input, figureNumbers);
   }
 
   if (targets.length === 1) {
     return runFigureStage({ ...input, questionNumber: targets[0] });
   }
 
+  return runFigureQuestionList(input, targets);
+}
+
+async function runFigureQuestionList(
+  input: TargetedFigureInput,
+  targets: number[]
+): Promise<FigureRunnerOutput> {
   // 복수 문제: 번호별로 실행하고 figure_status.json을 병합한다.
   // figure_processor.py는 --question N 지정 시 해당 문제만 status에 기록(나머지 보존).
   // TS에서 각 실행 직후 읽어 최종 merged status를 직접 병합한다.
   const mergedQuestions: Record<string, unknown> = {};
-  let overallStatus: "done" | "partial" | "failed" = "done";
   const needsAgentReview: number[] = [];
+  const orderedTargets = [...new Set(targets)].sort((a, b) => a - b);
+  const total = orderedTargets.length;
 
-  for (const n of targets) {
+  await writeFigureListProgress(input.statusOutPath, mergedQuestions, {
+    phase: "starting",
+    total,
+    currentIndex: 0,
+    completed: 0,
+    currentQuestion: null,
+    percent: 0,
+    message: `Figure processing ready (0/${total})`,
+  });
+
+  for (const [index, n] of orderedTargets.entries()) {
+    const currentIndex = index + 1;
+    mergedQuestions[String(n)] = {
+      status: "running",
+      message: `Q${n} figure processing`,
+    };
+    await writeFigureListProgress(input.statusOutPath, mergedQuestions, {
+      phase: "processing",
+      total,
+      currentIndex,
+      completed: index,
+      currentQuestion: n,
+      percent: Math.round((index / Math.max(total, 1)) * 100),
+      message: `Q${n} figure processing (${currentIndex}/${total})`,
+    });
+
     const result = await runFigureStage({ ...input, questionNumber: n });
-    if (result.status === "failed") {
-      overallStatus = "failed";
-    } else if (result.status === "partial" && overallStatus !== "failed") {
-      overallStatus = "partial";
-    }
     if (result.needsAgentReview.length > 0) {
       needsAgentReview.push(...result.needsAgentReview);
     }
@@ -1254,10 +1320,36 @@ async function runTargetedFigureStage(
     } catch {
       // ignore — 이번 문제 결과를 반영 못 한 경우
     }
+    const current = mergedQuestions[String(n)] as { status?: string } | undefined;
+    if (!current && result.status === "failed") {
+      mergedQuestions[String(n)] = {
+        status: "failed",
+        error: "figure_processor.py 실행 결과가 기록되지 않았습니다. 이 문제만 다시 재생성하세요.",
+      };
+    }
+    await writeFigureListProgress(input.statusOutPath, mergedQuestions, {
+      phase: "processed",
+      total,
+      currentIndex,
+      completed: currentIndex,
+      currentQuestion: n,
+      percent: Math.round((currentIndex / Math.max(total, 1)) * 100),
+      message: `Q${n} figure processed (${currentIndex}/${total})`,
+    });
   }
 
   // merged 결과를 statusOutPath에 덮어쓴다.
-  const mergedStatus = { status: overallStatus, questions: mergedQuestions };
+  const mergedStatus = summarizeMergedFigureStatus(mergedQuestions, "done");
+  mergedStatus.progress = {
+    phase: "completed",
+    total,
+    currentIndex: total,
+    completed: total,
+    currentQuestion: null,
+    percent: 100,
+    message: `Figure processing complete: success ${mergedStatus.success.length}, failed ${mergedStatus.failed.length}`,
+    updatedAt: new Date().toISOString(),
+  };
   try {
     await writeFile(input.statusOutPath, JSON.stringify(mergedStatus, null, 2), "utf8");
   } catch {
@@ -1265,8 +1357,89 @@ async function runTargetedFigureStage(
   }
 
   return {
-    status: overallStatus,
+    status: mergedStatus.status,
     statusJsonPath: input.statusOutPath,
     needsAgentReview: [...new Set(needsAgentReview)].sort((a, b) => a - b),
+  };
+}
+
+async function writeFigureListProgress(
+  statusOutPath: string,
+  questions: Record<string, unknown>,
+  progress: Record<string, unknown>
+): Promise<void> {
+  const baseStatus = summarizeMergedFigureStatus(questions, "done");
+  const status: Omit<ReturnType<typeof summarizeMergedFigureStatus>, "status"> & {
+    status: "running" | "done" | "partial" | "failed";
+  } = {
+    ...baseStatus,
+    status: "running",
+    completed: false,
+  };
+  status.progress = {
+    ...progress,
+    updatedAt: new Date().toISOString(),
+  };
+  try {
+    await writeFile(statusOutPath, JSON.stringify(status, null, 2), "utf8");
+  } catch {
+    // best-effort progress file
+  }
+}
+
+async function readFigureQuestionNumbers(examDataPath: string): Promise<number[]> {
+  try {
+    const text = await readFile(examDataPath, "utf8");
+    const parsed = JSON.parse(text) as { problems?: Array<Record<string, unknown>> };
+    return (parsed.problems ?? [])
+      .filter((p) => p.has_figure === true && Boolean(p.figure_info))
+      .map((p) => Number(p.number))
+      .filter((n) => Number.isFinite(n))
+      .sort((a, b) => a - b);
+  } catch {
+    return [];
+  }
+}
+
+function summarizeMergedFigureStatus(
+  questions: Record<string, unknown>,
+  fallbackStatus: "done" | "partial" | "failed"
+): {
+  status: "done" | "partial" | "failed";
+  completed: boolean;
+  success: number[];
+  failed: number[];
+  questions: Record<string, unknown>;
+  progress?: Record<string, unknown>;
+} {
+  const entries = Object.entries(questions) as Array<[string, { status?: string }]>;
+  const failed = entries
+    .filter(([, q]) => q.status === "failed")
+    .map(([n]) => Number(n))
+    .filter((n) => Number.isFinite(n))
+    .sort((a, b) => a - b);
+  const success = entries
+    .filter(([, q]) => q.status === "ok" || q.status === "boundary_uncertain")
+    .map(([n]) => Number(n))
+    .filter((n) => Number.isFinite(n))
+    .sort((a, b) => a - b);
+
+  let status: "done" | "partial" | "failed" = fallbackStatus;
+  if (entries.length === 0) {
+    status = "done";
+  } else if (failed.length === entries.length) {
+    status = "failed";
+  } else if (failed.length > 0 || entries.some(([, q]) => q.status === "boundary_uncertain")) {
+    status = "partial";
+  } else {
+    status = "done";
+  }
+
+  return {
+    status,
+    completed: status === "done",
+    success,
+    failed,
+    questions,
   };
 }

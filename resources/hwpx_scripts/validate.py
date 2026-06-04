@@ -17,6 +17,20 @@ HWPX XML 검증 + 자동수정 스크립트
 
 import zipfile, re, sys, os
 
+_LONG_SINGLE_LINE_RATIO = 1.35
+
+
+_BLANK_EQUATION_RE = re.compile(
+    r'<hp:equation\b(?:(?!</hp:equation>).)*?'
+    r'<hp:script[^>]*>\s*</hp:script>'
+    r'(?:(?!</hp:equation>).)*?</hp:equation>',
+    re.DOTALL,
+)
+
+
+def _remove_blank_equations(text):
+    return _BLANK_EQUATION_RE.sub("", text)
+
 
 def _estimate_text_units(text):
     total = 0
@@ -50,6 +64,69 @@ def _visible_text_from_paragraph(paragraph_xml):
     )
     equation_count = len(re.findall(r'<hp:equation\b', paragraph_xml))
     return text + (" " * (equation_count * 4))
+
+
+def _line_start_offsets_for_text(text, max_units):
+    starts = [0]
+    line_units = 0
+    offset = 0
+    has_body = False
+    for ch in text or "":
+        unit = _estimate_text_units(ch)
+        if has_body and line_units + unit > max_units:
+            starts.append(offset)
+            line_units = 0
+        line_units += unit
+        offset += 1
+        if not ch.isspace():
+            has_body = True
+    return starts
+
+
+def _fix_long_single_lineseg(paragraph_xml):
+    linesegs = re.findall(r'<hp:lineseg\b([^>]*)/>', paragraph_xml)
+    if len(linesegs) != 1:
+        return paragraph_xml, False
+
+    text = _visible_text_from_paragraph(paragraph_xml)
+    text_units = _estimate_text_units(text)
+    attrs = linesegs[0]
+    horz_match = re.search(r'horzsize="(\d+)"', attrs)
+    horzsize = int(horz_match.group(1)) if horz_match else 30188
+    if text_units <= int(horzsize * _LONG_SINGLE_LINE_RATIO):
+        return paragraph_xml, False
+
+    starts = _line_start_offsets_for_text(text, max(1200, int(horzsize * 0.92)))
+    if len(starts) <= 1:
+        return paragraph_xml, False
+
+    def attr_int(name, default):
+        match = re.search(rf'\b{name}="(\d+)"', attrs)
+        return int(match.group(1)) if match else default
+
+    vertsize = attr_int("vertsize", 1000)
+    textheight = attr_int("textheight", vertsize)
+    baseline = attr_int("baseline", int(textheight * 0.85))
+    spacing = attr_int("spacing", 600)
+    horzpos = attr_int("horzpos", 0)
+    flags = attr_int("flags", 393216)
+    line_step = vertsize + spacing
+    new_lines = []
+    for idx, start in enumerate(starts):
+        new_lines.append(
+            f'<hp:lineseg textpos="{start}" vertpos="{idx * line_step}" '
+            f'vertsize="{vertsize}" textheight="{textheight}" baseline="{baseline}" '
+            f'spacing="{spacing}" horzpos="{horzpos}" horzsize="{horzsize}" flags="{flags}"/>'
+        )
+
+    fixed = re.sub(
+        r'<hp:linesegarray>.*?</hp:linesegarray>',
+        f'<hp:linesegarray>{"".join(new_lines)}</hp:linesegarray>',
+        paragraph_xml,
+        count=1,
+        flags=re.DOTALL,
+    )
+    return fixed, fixed != paragraph_xml
 
 
 def validate_hwpx(hwpx_path):
@@ -86,6 +163,9 @@ def validate_hwpx(hwpx_path):
 
     if 'Contents/section0.xml' in names:
         section = zf.read('Contents/section0.xml').decode('utf-8')
+        blank_equations = _BLANK_EQUATION_RE.findall(section)
+        if blank_equations:
+            errors.append(f"blank equation objects: {len(blank_equations)}")
 
         # 수식 이스케이프
         raw_lt = re.findall(r'<hp:script>[^<]*<(?!/hp:script>)', section)
@@ -124,7 +204,7 @@ def validate_hwpx(hwpx_path):
             text_units = _estimate_text_units(_visible_text_from_paragraph(paragraph))
             horz_match = re.search(r'horzsize="(\d+)"', linesegs[0])
             horzsize = int(horz_match.group(1)) if horz_match else 30188
-            if text_units > int(horzsize * 1.35):
+            if text_units > int(horzsize * _LONG_SINGLE_LINE_RATIO):
                 errors.append(f"긴 문단 단일 lineSegArray 감지: paragraph #{idx}, textUnits={text_units}, horzsize={horzsize}")
                 break
 
@@ -150,7 +230,7 @@ def validate_hwpx(hwpx_path):
 
 def fix_hwpx(hwpx_path):
     tmp_path = hwpx_path + '.fix_tmp'
-    fixes = {'escape': 0, 'celladdr': 0, 'zorder': 0}
+    fixes = {'escape': 0, 'celladdr': 0, 'zorder': 0, 'blank_equation': 0, 'lineseg': 0}
 
     with zipfile.ZipFile(hwpx_path, 'r') as zin, \
          zipfile.ZipFile(tmp_path, 'w', zipfile.ZIP_DEFLATED) as zout:
@@ -233,6 +313,18 @@ def fix_hwpx(hwpx_path):
                     return f'zOrder="{z}"'
                 text = re.sub(r'zOrder="(\d+)"', fz, text)
 
+                before_blank = len(_BLANK_EQUATION_RE.findall(text))
+                if before_blank:
+                    text = _remove_blank_equations(text)
+                    fixes['blank_equation'] += before_blank
+
+                def fix_para_lineseg(m):
+                    fixed_para, changed = _fix_long_single_lineseg(m.group(0))
+                    if changed:
+                        fixes['lineseg'] += 1
+                    return fixed_para
+                text = re.sub(r'<hp:p\b.*?</hp:p>', fix_para_lineseg, text, flags=re.DOTALL)
+
                 data = text.encode('utf-8')
             zout.writestr(item, data)
 
@@ -253,6 +345,7 @@ if __name__ == "__main__":
         if f['escape']: msgs.append(f"수식 이스케이프 {f['escape']}건")
         if f['celladdr']: msgs.append(f"테이블 cellAddr {f['celladdr']}건")
         if f['zorder']: msgs.append(f"zOrder 중복 {f['zorder']}건")
+        if f['blank_equation']: msgs.append(f"빈 수식 {f['blank_equation']}건")
         if msgs: print(f"[FIX] {', '.join(msgs)} 수정")
     errors = validate_hwpx(path)
     if errors:

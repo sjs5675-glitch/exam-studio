@@ -3,6 +3,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { readRuntimeEnv } from "@/lib/server/runtimeEnv";
 import { getDataRoot } from "@/lib/server/paths";
+import { resolvePythonCommand } from "@/lib/server/python";
 import type { ImageProviderId } from "@/lib/ai/settings";
 import type { AutoCropMode, PdfFlip, PdfRotation } from "@/lib/cropper/types";
 
@@ -37,6 +38,8 @@ interface StartAutoCropJobInput {
   flip: PdfFlip;
   provider: ImageProviderId;
   mode: AutoCropMode;
+  totalPages?: number;
+  includedPages?: number[];
 }
 
 const BASE_DIR = getDataRoot();
@@ -46,10 +49,31 @@ const SCRIPT_BY_PROVIDER: Record<ImageProviderId, string> = {
   "codex-cli": "codex_crop.py",
 };
 
-const TIMEOUT_BY_PROVIDER: Record<ImageProviderId, number> = {
-  gemini: 1800000,
-  "codex-cli": 1800000,
-};
+const FALLBACK_TIMEOUT_MS = 30 * 60 * 1000;
+const MAX_TIMEOUT_MS = 6 * 60 * 60 * 1000;
+
+export function resolveAutoCropTimeoutMs(input: {
+  provider: ImageProviderId;
+  mode: AutoCropMode;
+  totalPages?: number;
+}): number {
+  const totalPages = Number.isFinite(input.totalPages)
+    ? Math.max(1, Math.trunc(input.totalPages ?? 1))
+    : 0;
+  if (!totalPages) return FALLBACK_TIMEOUT_MS;
+
+  const timeoutMs = (() => {
+    if (input.provider === "codex-cli") {
+      return 10 * 60 * 1000 + totalPages * 135 * 1000;
+    }
+    if (input.mode === "fast") {
+      return 8 * 60 * 1000 + totalPages * 30 * 1000;
+    }
+    return 12 * 60 * 1000 + totalPages * 75 * 1000;
+  })();
+
+  return Math.min(MAX_TIMEOUT_MS, Math.max(FALLBACK_TIMEOUT_MS, timeoutMs));
+}
 
 const globalForJobs = globalThis as typeof globalThis & {
   __examStudioAutoCropJobs?: Map<string, AutoCropJob>;
@@ -60,6 +84,7 @@ globalForJobs.__examStudioAutoCropJobs = jobs;
 
 export function startAutoCropJob(input: StartAutoCropJobInput): AutoCropJobSnapshot {
   const now = new Date().toISOString();
+  const pagesToProcess = input.includedPages?.length ?? input.totalPages ?? 0;
   const job: AutoCropJob = {
     id: randomUUID(),
     status: "running",
@@ -68,7 +93,7 @@ export function startAutoCropJob(input: StartAutoCropJobInput): AutoCropJobSnaps
     message: "자동분할 준비 중",
     progress: 0,
     currentPage: 0,
-    totalPages: 0,
+    totalPages: pagesToProcess,
     startedAt: now,
     updatedAt: now,
     stdout: [],
@@ -106,9 +131,10 @@ function snapshotJob(job: AutoCropJob): AutoCropJobSnapshot {
 async function runAutoCropJob(job: AutoCropJob, input: StartAutoCropJobInput): Promise<void> {
   const fullPath = path.join(BASE_DIR, input.pdfPath);
   const scriptPath = path.join(BASE_DIR, "workspaces", "crop", SCRIPT_BY_PROVIDER[input.provider]);
-  const pythonCmd = process.platform === "win32" ? "python" : "python3";
+  const pythonCmd = resolvePythonCommand({ baseDir: BASE_DIR });
   const args = [scriptPath, fullPath, "--json-only", "--rotation", String(input.rotation)];
   if (input.flip) args.push("--flip");
+  if (input.includedPages?.length) args.push("--pages", input.includedPages.join(","));
   if (input.provider === "gemini") {
     if (input.mode === "fast") {
       args.push("--batch-size", "4", "--no-verify-pass");
@@ -136,6 +162,11 @@ async function runAutoCropJob(job: AutoCropJob, input: StartAutoCropJobInput): P
   });
 
   let timedOut = false;
+  const timeoutMs = resolveAutoCropTimeoutMs({
+    provider: input.provider,
+    mode: input.mode,
+    totalPages: input.includedPages?.length ?? input.totalPages,
+  });
   const timer = setTimeout(() => {
     timedOut = true;
     try {
@@ -143,7 +174,7 @@ async function runAutoCropJob(job: AutoCropJob, input: StartAutoCropJobInput): P
     } catch {
       // already gone
     }
-  }, TIMEOUT_BY_PROVIDER[input.provider]);
+  }, timeoutMs);
   timer.unref?.();
 
   proc.stdout.on("data", (chunk: Buffer) => {
@@ -170,7 +201,12 @@ async function runAutoCropJob(job: AutoCropJob, input: StartAutoCropJobInput): P
     const stdout = job.stdout.join("").trim();
     const stderr = job.stderr.join("").trim();
     if (timedOut) {
-      failJob(job, "자동분할 시간이 초과되었습니다.", stderr.slice(-1200));
+      const timeoutMinutes = Math.ceil(timeoutMs / 60000);
+      failJob(
+        job,
+        "자동분할 시간이 초과되었습니다.",
+        `작업 제한시간(${timeoutMinutes}분)을 초과했습니다. ${stderr.slice(-1200)}`,
+      );
       return;
     }
     if (code !== 0) {

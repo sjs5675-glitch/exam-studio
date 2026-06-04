@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Settings } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, Settings } from "lucide-react";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -38,18 +39,62 @@ const iconMap: Record<string, React.ReactNode> = {
   settings: <Settings className="h-5 w-5" strokeWidth={1.8} />,
 };
 
+const SIDEBAR_COLLAPSED_KEY = "exam-studio.sidebar-collapsed";
+
 export function Sidebar() {
   const pathname = usePathname();
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    try {
+      setCollapsed(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true");
+    } catch {}
+  }, []);
+
+  function toggleCollapsed() {
+    setCollapsed((current) => {
+      const next = !current;
+      try {
+        localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(next));
+      } catch {}
+      return next;
+    });
+  }
 
   return (
-    <aside className="w-60 h-screen bg-sidebar border-r border-sidebar-border flex flex-col">
-      <div className="p-6 pb-4">
-        <h2 className="text-lg font-semibold text-sidebar-foreground tracking-tight">
-          Exam Studio
-        </h2>
+    <aside
+      className={cn(
+        "h-screen bg-sidebar border-r border-sidebar-border flex flex-col overflow-hidden transition-[width] duration-200 ease-out",
+        collapsed ? "w-16" : "w-60"
+      )}
+    >
+      <div
+        className={cn(
+          "flex items-center gap-2 px-4 py-5",
+          collapsed ? "justify-center" : "justify-between"
+        )}
+      >
+        {!collapsed && (
+          <h2 className="text-lg font-semibold text-sidebar-foreground tracking-tight">
+            Exam Studio
+          </h2>
+        )}
+        <button
+          type="button"
+          onClick={toggleCollapsed}
+          aria-label={collapsed ? "사이드 메뉴 펼치기" : "사이드 메뉴 접기"}
+          title={collapsed ? "사이드 메뉴 펼치기" : "사이드 메뉴 접기"}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
+        >
+          {collapsed ? (
+            <PanelLeftOpen className="h-4 w-4" strokeWidth={1.8} />
+          ) : (
+            <PanelLeftClose className="h-4 w-4" strokeWidth={1.8} />
+          )}
+        </button>
       </div>
 
-      <nav className="flex-1 px-3 space-y-1">
+      <nav className={cn("flex-1 space-y-1", collapsed ? "px-2" : "px-3")}>
         {navItems.map((item) => {
           const isActive =
             item.href === "/"
@@ -60,8 +105,10 @@ export function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
+              title={collapsed ? item.label : undefined}
               className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors",
+                "flex items-center rounded-md text-sm transition-colors",
+                collapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2.5",
                 isActive
                   ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
                   : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
@@ -70,14 +117,18 @@ export function Sidebar() {
               <span className={isActive ? "text-sidebar-primary" : ""}>
                 {iconMap[item.icon]}
               </span>
-              {item.label}
+              {!collapsed && <span>{item.label}</span>}
             </Link>
           );
         })}
       </nav>
 
-      <div className="p-4 border-t border-sidebar-border">
-        <p className="text-xs text-muted-foreground">v0.1.0</p>
+      <div className={cn("border-t border-sidebar-border", collapsed ? "p-2" : "p-4")}>
+        {!collapsed ? (
+          <p className="text-xs text-muted-foreground">v0.1.0</p>
+        ) : (
+          <div className="mx-auto h-1.5 w-1.5 rounded-full bg-muted-foreground/40" title="v0.1.0" />
+        )}
       </div>
     </aside>
   );

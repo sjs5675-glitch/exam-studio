@@ -187,7 +187,8 @@ async function runCropJob({
 
 // ---------------------------------------------------------------------------
 
-const PORT = parseInt(process.env.SSE_PORT ?? "3021", 10);
+const PORT = parseInt(process.env.SSE_PORT ?? "3031", 10);
+const NEXT_PORT = parseInt(process.env.NEXT_PORT ?? "3030", 10);
 const __server_file = fileURLToPath(import.meta.url);
 const __server_dir = path.dirname(__server_file);
 const BASE_DIR = path.resolve(__server_dir, "../..");
@@ -222,9 +223,9 @@ function shutdown() {
   // Next.js dev 서버도 종료 (포트 3020)
   try {
     if (os.platform() === "win32") {
-      execSync('for /f "tokens=5" %a in (\'netstat -ano ^| findstr ":3020" ^| findstr "LISTENING"\') do taskkill /pid %a /f', { stdio: "ignore", shell: "cmd.exe" });
+      execSync(`for /f "tokens=5" %a in ('netstat -ano ^| findstr ":${NEXT_PORT}" ^| findstr "LISTENING"') do taskkill /pid %a /f`, { stdio: "ignore", shell: "cmd.exe" });
     } else {
-      execSync("lsof -ti:3020 | xargs -r kill", { stdio: "ignore" });
+      execSync(`lsof -ti:${NEXT_PORT} | xargs -r kill`, { stdio: "ignore" });
     }
   } catch { /* ignore */ }
 

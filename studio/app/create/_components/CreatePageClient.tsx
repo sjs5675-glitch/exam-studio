@@ -19,14 +19,14 @@ import {
   type WorkbookRole,
 } from "@/components/upload/MetaForm";
 import { parseExamMetaFromFilename } from "@/lib/pdf/filenameMeta";
-import type { ExamMetaInput } from "@/lib/exam/meta";
+import type { EndnoteMode, ExamMetaInput } from "@/lib/exam/meta";
 import { useJobRunner } from "@/lib/useJobRunner";
 import { useJobStore } from "@/lib/store";
 import { sendResumeAction } from "@/components/results/question-result/resume";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PipelineView } from "@/components/pipeline/PipelineView";
-import { QuestionList, QuestionDetailModal, QuestionPanelHeader } from "@/components/results/QuestionResultPanel";
+import { QuestionList, QuestionDetailModal, QuestionPanelHeader, QuestionDetailView } from "@/components/results/QuestionResultPanel";
 import { FigureReviewModal } from "@/components/results/question-result/FigureReviewModal";
 import { LogStream } from "@/components/log/LogStream";
 import { DownloadButton } from "@/components/shared/DownloadButton";
@@ -70,8 +70,564 @@ const fieldInputClass = "w-full min-w-0 px-0 py-0.5 text-sm bg-transparent borde
 
 type CreateStartError = Error & { hint?: string; code?: string };
 
+type ResultSessionSummary = {
+  id: string;
+  active: boolean;
+  label: string;
+  updatedAt: string;
+  questionCount: number;
+  essayCount: number;
+  hasClean: boolean;
+  meta?: ExamMetaInput;
+};
+
+type FigureProgress = {
+  phase?: string;
+  total?: number;
+  currentIndex?: number;
+  completed?: number;
+  currentQuestion?: number | null;
+  percent?: number;
+  message?: string;
+  updatedAt?: string;
+};
+
+type FigureStatusPayload = {
+  pending?: boolean;
+  done?: boolean;
+  status?: string;
+  success?: number[];
+  failed?: number[];
+  images?: string[];
+  progress?: FigureProgress | null;
+};
+
+function getExistingQuestionNumbers(images: ExistingImages): number[] {
+  return [...new Set([...(images.numbers || []), ...(images.essayNumbers || [])])]
+    .sort((a, b) => a - b);
+}
+
 function getEffectiveMeta(hasJob: boolean, meta: MetaValue, v3Meta: ExamMetaInput | null | undefined): MetaValue {
   return hasJob ? { ...meta, ...(v3Meta ?? {}) } : meta;
+}
+
+function OutputOptionsPanel({
+  meta,
+  disabled,
+  onPatch,
+  yearOptions,
+}: {
+  meta: MetaValue;
+  disabled: boolean;
+  onPatch: (patch: Partial<MetaValue>) => void;
+  yearOptions: number[];
+}) {
+  const documentKind = meta.documentKind ?? "science_workbook";
+  const isWorkbook = documentKind === "science_workbook";
+  const checkboxClass = "accent-primary h-3.5 w-3.5 shrink-0";
+  const labelClass = cn(
+    "flex items-center gap-1.5 text-[11px] font-bold text-muted-foreground",
+    disabled && "opacity-60"
+  );
+  const smallFieldClass = "grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-2 min-w-0";
+  const smallLabelClass = "text-[10px] text-muted-foreground font-semibold shrink-0";
+  const smallInputClass = "h-8 w-full min-w-0 rounded-md border bg-background px-2 text-xs text-foreground outline-none disabled:opacity-70";
+
+  return (
+    <div className="shrink-0 border-b bg-muted/10 px-6 py-3">
+      <div className="mb-2 flex items-center gap-2">
+        <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+          HWPX 조립 설정
+        </span>
+        <span className="rounded-full border bg-background px-2 py-0.5 text-[9px] font-bold text-muted-foreground">
+          Builder
+        </span>
+      </div>
+
+      <div className="mb-2 grid grid-cols-2 gap-x-4 gap-y-2 xl:grid-cols-4">
+        <div className={smallFieldClass}>
+          <span className={smallLabelClass}>작업</span>
+          <select
+            value={documentKind}
+            onChange={(e) => {
+              const nextKind = e.target.value as DocumentKind;
+              onPatch({
+                documentKind: nextKind,
+                examType: nextKind === "science_workbook" ? "문제집" : "중간",
+                outputVersion: nextKind === "science_workbook"
+                  ? (meta.workbookRole === "teacher" ? "교사용" : "학생용")
+                  : "시험지",
+                answerPolicy: nextKind === "science_workbook" && meta.workbookRole === "teacher"
+                  ? "blue_keep"
+                  : "none",
+              });
+            }}
+            disabled={disabled}
+            className={smallInputClass}
+          >
+            <option value="science_workbook">과학 문제집</option>
+            <option value="science_exam">과학시험지</option>
+          </select>
+        </div>
+        <div className={smallFieldClass}>
+          <span className={smallLabelClass}>학교급</span>
+          <select
+            value={meta.schoolLevel}
+            onChange={(e) => onPatch({ schoolLevel: e.target.value as SchoolLevel })}
+            disabled={disabled}
+            className={smallInputClass}
+          >
+            <option value="중">중학교</option>
+            <option value="고">고등학교</option>
+          </select>
+        </div>
+        <div className={smallFieldClass}>
+          <span className={smallLabelClass}>학년</span>
+          <select
+            value={meta.grade}
+            onChange={(e) => onPatch({ grade: Number(e.target.value) })}
+            disabled={disabled}
+            className={smallInputClass}
+          >
+            {[1, 2, 3].map((g) => <option key={g} value={g}>{g}학년</option>)}
+          </select>
+        </div>
+        <div className={smallFieldClass}>
+          <span className={smallLabelClass}>과목</span>
+          <select
+            value={meta.subject}
+            onChange={(e) => onPatch({ subject: e.target.value })}
+            disabled={disabled}
+            className={smallInputClass}
+          >
+            {SCIENCE_SUBJECTS.map((subject) => <option key={subject} value={subject}>{subject}</option>)}
+          </select>
+        </div>
+        <div className={smallFieldClass}>
+          <span className={smallLabelClass}>교육과정</span>
+          <select
+            value={meta.curriculum ?? "22개정"}
+            onChange={(e) => onPatch({ curriculum: e.target.value as Curriculum })}
+            disabled={disabled}
+            className={smallInputClass}
+          >
+            {CURRICULUM_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+          </select>
+        </div>
+
+        {isWorkbook ? (
+          <>
+            <div className={smallFieldClass}>
+              <span className={smallLabelClass}>출판사</span>
+              <input
+                type="text"
+                value={meta.publisher ?? ""}
+                onChange={(e) => onPatch({ publisher: e.target.value })}
+                placeholder="예: 미래엔, 천재"
+                disabled={disabled}
+                className={smallInputClass}
+              />
+            </div>
+            <div className={smallFieldClass}>
+              <span className={smallLabelClass}>교재명</span>
+              <input
+                type="text"
+                value={meta.bookTitle ?? ""}
+                onChange={(e) => onPatch({ bookTitle: e.target.value })}
+                placeholder="예: 오투, 체크체크"
+                disabled={disabled}
+                className={smallInputClass}
+              />
+            </div>
+            <div className={smallFieldClass}>
+              <span className={smallLabelClass}>유형</span>
+              <select
+                value={meta.bookType ?? "본문"}
+                onChange={(e) => onPatch({ bookType: e.target.value as WorkbookBookType })}
+                disabled={disabled}
+                className={smallInputClass}
+              >
+                {WORKBOOK_TYPES.map((option) => <option key={option} value={option}>{option}</option>)}
+              </select>
+            </div>
+            <div className={smallFieldClass}>
+              <span className={smallLabelClass}>버전</span>
+              <select
+                value={meta.workbookRole ?? "student"}
+                onChange={(e) => {
+                  const workbookRole = e.target.value as WorkbookRole;
+                  onPatch({
+                    workbookRole,
+                    outputVersion: workbookRole === "teacher" ? "교사용" : "학생용",
+                    answerPolicy: workbookRole === "teacher" ? "blue_keep" : "none",
+                  });
+                }}
+                disabled={disabled}
+                className={smallInputClass}
+              >
+                {WORKBOOK_ROLES.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className={smallFieldClass}>
+              <span className={smallLabelClass}>권/학기</span>
+              <input
+                type="text"
+                value={meta.bookVolume ?? ""}
+                onChange={(e) => onPatch({ bookVolume: e.target.value, semester: e.target.value })}
+                placeholder="예: 1학기, 2-1"
+                disabled={disabled}
+                className={smallInputClass}
+              />
+            </div>
+            <div className={smallFieldClass}>
+              <span className={smallLabelClass}>범위</span>
+              <input
+                type="text"
+                value={meta.range}
+                onChange={(e) => onPatch({ range: e.target.value })}
+                placeholder="예: 생물의 구성~자극과 반응"
+                disabled={disabled}
+                className={smallInputClass}
+              />
+            </div>
+          </>
+        ) : (
+          <>
+            <div className={smallFieldClass}>
+              <span className={smallLabelClass}>학년도</span>
+              <select
+                value={meta.year}
+                onChange={(e) => onPatch({ year: Number(e.target.value) })}
+                disabled={disabled}
+                className={smallInputClass}
+              >
+                {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
+              </select>
+            </div>
+            <div className={smallFieldClass}>
+              <span className={smallLabelClass}>학교</span>
+              <input
+                type="text"
+                value={meta.school}
+                onChange={(e) => onPatch({ school: e.target.value })}
+                placeholder={meta.schoolLevel === "중" ? "OO중학교" : "OO고등학교"}
+                disabled={disabled}
+                className={smallInputClass}
+              />
+            </div>
+            <div className={smallFieldClass}>
+              <span className={smallLabelClass}>학기</span>
+              <select
+                value={meta.semester}
+                onChange={(e) => onPatch({ semester: e.target.value })}
+                disabled={disabled}
+                className={smallInputClass}
+              >
+                <option value="1학기">1학기</option>
+                <option value="2학기">2학기</option>
+              </select>
+            </div>
+            <div className={smallFieldClass}>
+              <span className={smallLabelClass}>시험</span>
+              <select
+                value={meta.examType}
+                onChange={(e) => onPatch({ examType: e.target.value })}
+                disabled={disabled}
+                className={smallInputClass}
+              >
+                <option value="중간">중간</option>
+                <option value="기말">기말</option>
+                <option value="모의">모의</option>
+              </select>
+            </div>
+            <div className={smallFieldClass}>
+              <span className={smallLabelClass}>범위</span>
+              <input
+                type="text"
+                value={meta.range}
+                onChange={(e) => onPatch({ range: e.target.value })}
+                placeholder="예: 물질의 구성~전기와 자기"
+                disabled={disabled}
+                className={smallInputClass}
+              />
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+        <div className="mr-1 flex items-center gap-2">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+            출력 옵션
+          </span>
+          <span className="rounded-full border bg-background px-2 py-0.5 text-[9px] font-bold text-muted-foreground">
+            HWPX
+          </span>
+        </div>
+
+        {isWorkbook && (
+          <>
+            <label className={labelClass}>
+              <input
+                type="checkbox"
+                checked={meta.removeProblemIds ?? true}
+                onChange={(e) => onPatch({ removeProblemIds: e.target.checked })}
+                disabled={disabled}
+                className={checkboxClass}
+              />
+              고유번호 제외
+            </label>
+            <label className={labelClass}>
+              <input
+                type="checkbox"
+                checked={meta.removeImportanceTags ?? true}
+                onChange={(e) => onPatch({ removeImportanceTags: e.target.checked })}
+                disabled={disabled}
+                className={checkboxClass}
+              />
+              중요 태그 제외
+            </label>
+            <label className={labelClass}>
+              <input
+                type="checkbox"
+                checked={meta.removeQrCodes ?? true}
+                onChange={(e) => onPatch({ removeQrCodes: e.target.checked })}
+                disabled={disabled}
+                className={checkboxClass}
+              />
+              QR 제외
+            </label>
+            <label className={labelClass}>
+              <input
+                type="checkbox"
+                checked={meta.removePageFooters ?? true}
+                onChange={(e) => onPatch({ removePageFooters: e.target.checked })}
+                disabled={disabled}
+                className={checkboxClass}
+              />
+              쪽수 제외
+            </label>
+          </>
+        )}
+
+        <label className={labelClass}>
+          <input
+            type="checkbox"
+            checked={meta.showProblemMetadata ?? false}
+            onChange={(e) => onPatch({ showProblemMetadata: e.target.checked })}
+            disabled={disabled}
+            className={checkboxClass}
+          />
+          중단원/난이도 표시
+        </label>
+
+        <label className={labelClass}>
+          <input
+            type="checkbox"
+            checked={(meta.endnoteMode ?? "answer_and_explanation") !== "answer_only"}
+            onChange={(e) =>
+              onPatch({
+                endnoteMode: (e.target.checked
+                  ? "answer_and_explanation"
+                  : "answer_only") as EndnoteMode,
+              })
+            }
+            disabled={disabled}
+            className={checkboxClass}
+          />
+          미주 해설 포함
+        </label>
+
+        <label className={cn("flex items-center gap-2 text-[11px] font-bold text-muted-foreground", disabled && "opacity-60")}>
+          그림
+          <select
+            value={meta.figureMode ?? "auto"}
+            onChange={(e) => onPatch({ figureMode: e.target.value as FigureMode })}
+            disabled={disabled}
+            className="h-7 min-w-[8rem] rounded-md border bg-background px-2 text-xs font-medium text-foreground disabled:opacity-70"
+          >
+            {FIGURE_MODES.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+    </div>
+  );
+}
+
+function PdfWorkflowOptionsPanel({
+  autoSplitActive,
+  autoSplitProvider,
+  autoSplitMode,
+  autoSplitProviderMissing,
+  onAutoSplitToggle,
+  onAutoSplitProviderChange,
+  onAutoSplitModeChange,
+  imageCleaningActive,
+  cleaningProviderMissing,
+  aiSettings,
+  onAISettingsChange,
+}: {
+  autoSplitActive: boolean;
+  autoSplitProvider: ImageProviderId;
+  autoSplitMode: AutoCropMode;
+  autoSplitProviderMissing: boolean;
+  onAutoSplitToggle: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onAutoSplitProviderChange: (provider: ImageProviderId) => void;
+  onAutoSplitModeChange: (mode: AutoCropMode) => void;
+  imageCleaningActive: boolean;
+  cleaningProviderMissing: boolean;
+  aiSettings: AISettings;
+  onAISettingsChange: (settings: AISettings) => void;
+}) {
+  const compactButton = "rounded-md border px-2.5 py-1 text-xs font-bold transition-colors";
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+        PDF 작업 옵션
+      </span>
+
+      <div className="flex items-center gap-2 rounded-md border bg-background px-2 py-1">
+        <label
+          className={cn(
+            "flex items-center gap-2 text-xs font-bold text-muted-foreground",
+            autoSplitProviderMissing ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+          )}
+        >
+          <input
+            type="checkbox"
+            checked={autoSplitActive}
+            onChange={onAutoSplitToggle}
+            disabled={autoSplitProviderMissing}
+            className="h-3.5 w-3.5 accent-primary"
+          />
+          자동 분할
+        </label>
+        <span className="text-[10px] font-bold text-muted-foreground/70">엔진</span>
+        <div className="flex items-center gap-1" aria-label="자동분할 엔진 선택">
+          <button
+            type="button"
+            onClick={() => onAutoSplitProviderChange("gemini")}
+            aria-pressed={autoSplitProvider === "gemini"}
+            className={cn(
+              compactButton,
+              autoSplitProvider === "gemini"
+                ? "border-primary bg-primary text-primary-foreground"
+                : "bg-background text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Gemini API
+          </button>
+          <button
+            type="button"
+            onClick={() => onAutoSplitProviderChange("codex-cli")}
+            aria-pressed={autoSplitProvider === "codex-cli"}
+            className={cn(
+              compactButton,
+              autoSplitProvider === "codex-cli"
+                ? "border-primary bg-primary text-primary-foreground"
+                : "bg-background text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Codex
+          </button>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-1 rounded-md border bg-background px-2 py-1">
+        <span className="text-[10px] font-bold text-muted-foreground/70">목적</span>
+        {(["accurate", "fast"] as const).map((mode) => (
+          <button
+            key={mode}
+            type="button"
+            onClick={() => onAutoSplitModeChange(mode)}
+            title={
+              mode === "accurate"
+                ? "정확도 우선: 1페이지씩 분석하고 2차 검수까지 진행합니다."
+                : "속도 우선: 여러 페이지를 묶어 빠르게 분석하고 2차 검수는 생략합니다."
+            }
+            className={cn(
+              compactButton,
+              autoSplitMode === mode
+                ? "border-primary bg-primary text-primary-foreground"
+                : "bg-background text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {mode === "accurate" ? "정확도" : "속도"}
+          </button>
+        ))}
+      </div>
+
+      <label
+        className={cn(
+          "flex items-center gap-2 text-xs font-bold text-muted-foreground",
+          cleaningProviderMissing ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+        )}
+        title="추출 전에 문제 이미지의 손글씨/필기 흔적을 제거합니다."
+      >
+        <input
+          type="checkbox"
+          checked={imageCleaningActive}
+          disabled={cleaningProviderMissing}
+          onChange={(e) => onAISettingsChange(writeAISettings({
+            ...aiSettings,
+            imageCleaningEnabled: e.target.checked,
+          }))}
+          className="h-3.5 w-3.5 accent-primary"
+        />
+        손글씨 제거 <span className="font-normal opacity-70">
+          ({aiSettings.imageCleaningProvider === "codex-cli" ? "ChatGPT 이미지2" : "Gemini API"})
+        </span>
+      </label>
+
+      <label
+        className="flex items-center gap-1.5 text-xs font-bold text-muted-foreground"
+        title="완성된 HWPX를 자동 점검하고 가능한 오류를 고친 뒤 다시 점검합니다."
+      >
+        <input
+          type="checkbox"
+          checked={aiSettings.checkerMaxAttempts > 0}
+          onChange={(e) => onAISettingsChange(writeAISettings({
+            ...aiSettings,
+            checkerMaxAttempts: e.target.checked ? 2 : 0,
+          }))}
+          className="h-3.5 w-3.5 accent-primary"
+        />
+        자동검수
+      </label>
+
+      <label
+        className="flex items-center gap-1.5 text-xs font-bold text-muted-foreground"
+        title="AI 풀이를 다시 검토하는 횟수입니다. 0이면 풀이 검증을 건너뜁니다."
+      >
+        풀이검증
+        <input
+          type="number"
+          min={0}
+          max={5}
+          step={1}
+          value={aiSettings.verifierMaxAttempts}
+          onChange={(e) => onAISettingsChange(writeAISettings({
+            ...aiSettings,
+            verifierMaxAttempts: Number(e.target.value),
+          }))}
+          className="h-7 w-12 rounded-md border bg-background px-1.5 text-center text-xs"
+        />
+      </label>
+
+      {(autoSplitProviderMissing || cleaningProviderMissing) && (
+        <a href="/settings" className="text-[10px] font-medium text-destructive/80 hover:text-destructive hover:underline">
+          설정 확인 필요
+        </a>
+      )}
+    </div>
+  );
 }
 
 function isTeacherWorkbook(meta: MetaValue): boolean {
@@ -99,6 +655,46 @@ function withWorkbookRole(meta: MetaValue, workbookRole: WorkbookRole): MetaValu
     outputVersion: workbookRole === "teacher" ? "교사용" : "학생용",
     answerPolicy: workbookRole === "teacher" ? "blue_keep" : "none",
   };
+}
+
+function formatResultSessionTime(value: string): string {
+  const time = new Date(value);
+  if (Number.isNaN(time.getTime())) return value;
+  return time.toLocaleString("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function getFigureProgressPercent(status: FigureStatusPayload | null): number | undefined {
+  const raw = status?.progress?.percent;
+  if (typeof raw !== "number" || !Number.isFinite(raw)) return undefined;
+  return Math.max(0, Math.min(100, Math.round(raw)));
+}
+
+function getFigureProgressSummary(status: FigureStatusPayload | null): string | undefined {
+  if (!status || status.pending) return undefined;
+  const progress = status.progress;
+  const total = progress?.total ?? 0;
+  const completed = progress?.completed ?? status.success?.length ?? 0;
+  const failed = status.failed?.length ?? 0;
+  const currentQuestion = progress?.currentQuestion;
+
+  if (currentQuestion && total > 0) {
+    const currentIndex = progress?.currentIndex ?? completed + 1;
+    return `Q${currentQuestion} 그림 처리 중 (${currentIndex}/${total}, 완료 ${completed}${failed ? `, 실패 ${failed}` : ""})`;
+  }
+  if (total > 0) {
+    return `그림 ${completed}/${total} 완료${failed ? `, 실패 ${failed}` : ""}`;
+  }
+  if (progress?.message) return progress.message;
+  if (status.status === "done" || status.done) {
+    return "그림 처리 완료";
+  }
+  return undefined;
 }
 
 export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
@@ -148,7 +744,7 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
     fetch("/api/question-images")
       .then((r) => r.json())
       .then(async (existingImages: ExistingImages) => {
-        const qNums = [...(existingImages.numbers || []), ...(existingImages.essayNumbers || [])];
+        const qNums = getExistingQuestionNumbers(existingImages);
         await preloadQuestionResultsFromCache(qNums, existingImages.cacheState);
         await startJob("resume", { pdf: "" }, jobMeta);
       })
@@ -249,8 +845,10 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
   function handleMetaChange(next: MetaValue) {
     const switchedToTeacherWorkbook = !isTeacherWorkbook(meta) && isTeacherWorkbook(next);
     setMeta(next);
+    const persistedMeta = hasJob ? { ...(v3Meta ?? {}), ...next } : next;
+    if (hasJob) setV3Meta(persistedMeta);
     try {
-      sessionStorage.setItem(META_LS_KEY, JSON.stringify(next));
+      sessionStorage.setItem(META_LS_KEY, JSON.stringify(persistedMeta));
     } catch {}
 
     if (switchedToTeacherWorkbook && aiSettings.imageCleaningEnabled) {
@@ -259,6 +857,11 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
         imageCleaningEnabled: false,
       }));
     }
+  }
+
+  function handleRuntimeMetaPatch(patch: Partial<MetaValue>) {
+    const current = getEffectiveMeta(hasJob, meta, v3Meta);
+    handleMetaChange({ ...current, ...patch });
   }
 
   const handlePdfSelected = useCallback((fileName: string) => {
@@ -299,10 +902,18 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
 
   // 이전 작업 재개 상태
   const [existingImages, setExistingImages] = useState<ExistingImages | null>(null);
+  const [resultSessionsOpen, setResultSessionsOpen] = useState(false);
+  const [resultSessions, setResultSessions] = useState<ResultSessionSummary[]>([]);
+  const [resultSessionsLoading, setResultSessionsLoading] = useState(false);
+  const [selectedResultSessionId, setSelectedResultSessionId] = useState<string | null>(null);
+  const [resultSessionsError, setResultSessionsError] = useState<string | null>(null);
 
   // build 상태 + 폴링
   const [buildStatus, setBuildStatus] = useState<BuildStatus | null>(null);
   const buildIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [figureStatus, setFigureStatus] = useState<FigureStatusPayload | null>(null);
+  const figureIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [activityLogCollapsed, setActivityLogCollapsed] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -310,15 +921,20 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
   const [questionModalOpen, setQuestionModalOpen] = useState(false);
   const [figureModalOpen, setFigureModalOpen] = useState(false);
   const [figureGlobalLoading, setFigureGlobalLoading] = useState<string | null>(null);
+  const [builderStarting, setBuilderStarting] = useState(false);
+  const [cacheReviewLoading, setCacheReviewLoading] = useState(false);
   const [cropperOpen, setCropperOpen] = useState(false);
 
-  // create 모드: figure 단계가 done이 되면 자동으로 FigureReviewModal을 연다.
+  // create 모드 또는 "그림 전체 재생성" 재개 모드: figure 단계가 done이 되면 자동으로 FigureReviewModal을 연다.
   // orchestrator(sse.ts)가 stopAfterStage="figure"로 figure 직후 멈추므로,
-  // 사용자는 그림을 확인하고 "확인 완료 → HWPX 조립 시작" CTA로 builder를 트리거한다.
+  // 사용자는 그림을 확인한 뒤 오른쪽 작업 헤더의 HWPX 조립 버튼으로 builder를 트리거한다.
   // jobId당 1회만 자동 오픈해 사용자가 닫은 모달을 다시 띄우지 않는다.
   const autoOpenedFigureJobIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (mode !== "create") return;
+    const shouldAutoOpen =
+      mode === "create" ||
+      (mode === "resume" && v3Meta?.resumeFrom === "figure");
+    if (!shouldAutoOpen) return;
     if (!jobId) return;
     const figureStage = stages.find((s) => s.name === "figure");
     if (figureStage?.status !== "done") return;
@@ -326,7 +942,7 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
     autoOpenedFigureJobIdRef.current = jobId;
     setQuestionModalOpen(false);
     setFigureModalOpen(true);
-  }, [mode, jobId, stages]);
+  }, [mode, v3Meta?.resumeFrom, jobId, stages]);
 
   // 이전 작업 재개 이미지 fetch (진행 중인 작업이 없을 때만)
   useEffect(() => {
@@ -338,6 +954,39 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
       })
       .catch(() => {});
   }, [hasJob]);
+
+  const loadResultSessions = useCallback(async () => {
+    setResultSessionsLoading(true);
+    setResultSessionsError(null);
+    try {
+      const res = await fetch("/api/result-sessions", { cache: "no-store" });
+      const data = await res.json().catch(() => ({})) as {
+        sessions?: ResultSessionSummary[];
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(data.error ?? `결과 목록 조회 실패 (${res.status})`);
+      }
+      const sessions = data.sessions ?? [];
+      setResultSessions(sessions);
+      setSelectedResultSessionId((current) => (
+        current && sessions.some((session) => session.id === current)
+          ? current
+          : sessions[0]?.id ?? null
+      ));
+    } catch (err) {
+      setResultSessions([]);
+      setSelectedResultSessionId(null);
+      setResultSessionsError(err instanceof Error ? err.message : "결과 목록 조회 실패");
+    } finally {
+      setResultSessionsLoading(false);
+    }
+  }, []);
+
+  const handleOpenResultSessions = useCallback(async () => {
+    setResultSessionsOpen(true);
+    await loadResultSessions();
+  }, [loadResultSessions]);
 
   const handleResume = useCallback(async () => {
     if (!existingImages) return;
@@ -351,27 +1000,145 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
     const jobMeta = {
       ...meta,
       ...cachedMeta,
-      questionCount: existingImages.count,
+      questionCount: getExistingQuestionNumbers(existingImages).length,
       resumeFrom: "auto",
     };
     setV3Meta({ ...jobMeta });
 
     // Pre-load all question data from cache
-    const qNums = [...(existingImages.numbers || []), ...(existingImages.essayNumbers || [])];
+    const qNums = getExistingQuestionNumbers(existingImages);
     await preloadQuestionResultsFromCache(qNums, existingImages.cacheState);
 
     await startJob("resume", { pdf: "" }, jobMeta);
   }, [existingImages, meta, startJob, setV3Meta]);
 
+  const handleLoadCachedResults = useCallback(async (sessionId = "active") => {
+    setCacheReviewLoading(true);
+    setSubmitError(null);
+    setRecoveryHint(null);
+
+    try {
+      if (sessionId !== "active") {
+        const restoreRes = await fetch("/api/result-sessions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: sessionId }),
+        });
+        if (!restoreRes.ok) {
+          const restoreError = await restoreRes.json().catch(() => ({})) as { error?: string };
+          throw new Error(restoreError.error ?? `결과 복원 실패 (${restoreRes.status})`);
+        }
+      }
+
+      const imagesRes = await fetch("/api/question-images");
+      if (!imagesRes.ok) {
+        throw new Error("기존 결과를 불러오지 못했습니다.");
+      }
+      const images = (await imagesRes.json()) as ExistingImages;
+      if (!images.count) {
+        throw new Error("불러올 문제 결과가 없습니다.");
+      }
+
+      let cachedMeta: ExamMetaInput = {};
+      try {
+        const r = await fetch("/api/v3cache-meta");
+        const data = await r.json() as { found: boolean; meta?: ExamMetaInput };
+        if (data.found && data.meta) cachedMeta = data.meta;
+      } catch { /* ignore */ }
+
+      const jobMeta = {
+        ...meta,
+        ...cachedMeta,
+        questionCount: getExistingQuestionNumbers(images).length,
+        resumeFrom: "confirm",
+      };
+      const reviewRes = await fetch("/api/review-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ meta: jobMeta, settings: readAISettings() }),
+      });
+      if (!reviewRes.ok) {
+        const errData = await reviewRes.json().catch(() => ({})) as { error?: string };
+        throw new Error(errData.error ?? "검토 세션을 만들지 못했습니다.");
+      }
+      const review = await reviewRes.json() as { jobId: string };
+
+      reset();
+      const liveStore = useJobStore.getState();
+      liveStore.setJobId(review.jobId);
+      liveStore.setMode("resume", "confirm");
+      liveStore.setStatus("done");
+      liveStore.setResult({ status: "success", summary: "cache-review" });
+      liveStore.setV3Meta(jobMeta);
+      liveStore.addLog({
+        timestamp: new Date().toISOString(),
+        stage: "system",
+        message: "캐시된 결과를 불러왔습니다. 누락/실패한 그림은 검토 창에서 사용자가 직접 재생성할 수 있습니다.",
+        level: "info",
+      });
+
+      const qNums = getExistingQuestionNumbers(images);
+      await preloadQuestionResultsFromCache(qNums, images.cacheState);
+      useJobStore.getState().setSelectedQuestionNumber(qNums[0] ?? null);
+      setExistingImages(images);
+      setResultSessionsOpen(false);
+      setQuestionModalOpen(false);
+      setFigureModalOpen(true);
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : "기존 결과 불러오기 실패");
+      setRecoveryHint("작업 재개는 재처리를 시작합니다. 먼저 결과만 확인하려면 캐시 폴더와 기존 문제 이미지가 남아 있어야 합니다.");
+    } finally {
+      setCacheReviewLoading(false);
+    }
+  }, [meta, reset]);
+
   const handleConfirmFigure = useCallback(async () => {
     if (!jobId) return;
-    await sendResumeAction(jobId, "resume --from=builder", store);
-  }, [jobId, store]);
+    await sendResumeAction(jobId, "resume --from=builder", store, getEffectiveMeta(hasJob, meta, v3Meta));
+  }, [hasJob, jobId, meta, store, v3Meta]);
+
+  const handleStartBuilder = useCallback(async () => {
+    if (!jobId || builderStarting) return;
+    setBuilderStarting(true);
+    try {
+      await handleConfirmFigure();
+      setFigureModalOpen(false);
+    } finally {
+      setBuilderStarting(false);
+    }
+  }, [builderStarting, handleConfirmFigure, jobId]);
 
   // build 상태 패널 표시 여부
+  const isCacheReviewSession =
+    status === "done" &&
+    mode === "resume" &&
+    v3Meta?.resumeFrom === "confirm" &&
+    result?.summary === "cache-review";
+
   const showBuildStatus = (isRunning || isDone) &&
     (mode === "create" || mode === "resume") &&
-    v3Meta?.resumeFrom !== "figure";
+    v3Meta?.resumeFrom !== "figure" &&
+    !isCacheReviewSession;
+
+  const figureStage = stages.find((s) => s.name === "figure");
+  const shouldPollFigureStatus =
+    hasJob &&
+    (mode === "create" || mode === "resume") &&
+    (figureStage?.status === "running" || figureStage?.status === "done" || figureStage?.status === "failed");
+
+  const stagesForDisplay = useMemo(() => {
+    if (!figureStatus || stages.length === 0) return stages;
+    const progress = getFigureProgressPercent(figureStatus);
+    const summary = getFigureProgressSummary(figureStatus);
+    return stages.map((stage) => {
+      if (stage.name !== "figure") return stage;
+      return {
+        ...stage,
+        progress: progress ?? stage.progress,
+        summary: summary ?? stage.summary,
+      };
+    });
+  }, [figureStatus, stages]);
 
   // build_status.json 폴링
   useEffect(() => {
@@ -407,6 +1174,54 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
       }
     };
   }, [showBuildStatus]);
+
+  useEffect(() => {
+    setFigureStatus(null);
+  }, [jobId]);
+
+  useEffect(() => {
+    if (!shouldPollFigureStatus) {
+      if (figureIntervalRef.current) {
+        clearInterval(figureIntervalRef.current);
+        figureIntervalRef.current = null;
+      }
+      return;
+    }
+
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const r = await fetch("/api/figure-status", { cache: "no-store" });
+        if (!r.ok) return;
+        const data = (await r.json()) as FigureStatusPayload;
+        if (cancelled) return;
+        if (data.pending) {
+          setFigureStatus(null);
+          return;
+        }
+        setFigureStatus(data);
+        if (
+          figureStage?.status !== "running" &&
+          (data.done || data.status === "done" || data.status === "failed" || data.status === "partial")
+        ) {
+          if (figureIntervalRef.current) {
+            clearInterval(figureIntervalRef.current);
+            figureIntervalRef.current = null;
+          }
+        }
+      } catch { /* ignore */ }
+    };
+
+    poll();
+    figureIntervalRef.current = setInterval(poll, 1500);
+    return () => {
+      cancelled = true;
+      if (figureIntervalRef.current) {
+        clearInterval(figureIntervalRef.current);
+        figureIntervalRef.current = null;
+      }
+    };
+  }, [shouldPollFigureStatus, figureStage?.status]);
 
   const handleExtract = useCallback(
     async (items: { number: number; kind?: "regular" | "essay"; blob: Blob }[]) => {
@@ -485,300 +1300,34 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
     [meta, figureProviderMissing, deepSeekBlocksCreate, startJob, setV3Meta]
   );
 
+  const runtimeMeta = getEffectiveMeta(hasJob, meta, v3Meta);
+  const runtimeOptionsDisabled = submitting || isRunning || cacheReviewLoading || builderStarting;
+
   return (
     <div className="flex flex-col h-[calc(100vh-140px)] overflow-hidden bg-background text-foreground">
       {/* Studio Control Center (Top Bar) */}
-      <div className="shrink-0 border rounded-2xl mb-5 bg-card shadow-sm flex items-start p-1 overflow-hidden">
-        {/* Section 1: Science document configuration */}
-        <div className="px-5 py-3 flex-[4] min-w-0">
+      <div className="shrink-0 border rounded-2xl mb-4 bg-card shadow-sm overflow-hidden">
+        <div className="grid min-h-[96px] grid-cols-1 xl:grid-cols-[minmax(360px,440px)_minmax(220px,260px)_minmax(110px,140px)_minmax(320px,1fr)]">
+        {/* Section 1: Workflow summary */}
+        <div className="min-w-0 border-b px-5 py-3 xl:border-b-0 xl:border-r">
           <div className="flex items-center gap-2 mb-3">
-            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Science Typing Setup</span>
+            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Science Typing</span>
             {!hasJob && <span className="flex h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />}
-            {hasJob && <span className="text-[9px] font-bold text-primary px-1.5 py-0.5 rounded bg-primary/10 border border-primary/20">LOCKED</span>}
           </div>
-          
-          {(() => {
-            const effectiveMeta = getEffectiveMeta(hasJob, meta, v3Meta);
-            const documentKind = effectiveMeta.documentKind ?? "science_workbook";
-            const isWorkbook = documentKind === "science_workbook";
-            const disabled = submitting || isRunning || hasJob;
-            return (
-              <div className="flex flex-col gap-2.5">
-                <div className="grid grid-cols-4 gap-x-4 gap-y-2">
-                  <div className={fieldShellClass}>
-                    <span className={fieldLabelClass}>작업</span>
-                    <select
-                      value={documentKind}
-                      onChange={(e) => handleMetaChange(withDocumentKind(meta, e.target.value as DocumentKind))}
-                      disabled={disabled}
-                      className={fieldInputClass}
-                    >
-                      <option value="science_workbook">과학 문제집</option>
-                      <option value="science_exam">과학시험지</option>
-                    </select>
-                  </div>
-                  <div className={fieldShellClass}>
-                    <span className={fieldLabelClass}>학교급</span>
-                    <select
-                      value={effectiveMeta.schoolLevel}
-                      onChange={(e) => handleMetaChange({ ...meta, schoolLevel: e.target.value as SchoolLevel })}
-                      disabled={disabled}
-                      className={fieldInputClass}
-                    >
-                      <option value="중">중학교</option>
-                      <option value="고">고등학교</option>
-                    </select>
-                  </div>
-                  <div className={fieldShellClass}>
-                    <span className={fieldLabelClass}>학년</span>
-                    <select
-                      value={effectiveMeta.grade}
-                      onChange={(e) => handleMetaChange({ ...meta, grade: Number(e.target.value) })}
-                      disabled={disabled}
-                      className={fieldInputClass}
-                    >
-                      {[1, 2, 3].map((g) => <option key={g} value={g}>{g}학년</option>)}
-                    </select>
-                  </div>
-                  <div className={fieldShellClass}>
-                    <span className={fieldLabelClass}>과목</span>
-                    <select
-                      value={effectiveMeta.subject}
-                      onChange={(e) => handleMetaChange({ ...meta, subject: e.target.value })}
-                      disabled={disabled}
-                      className={fieldInputClass}
-                    >
-                      {SCIENCE_SUBJECTS.map((subject) => <option key={subject} value={subject}>{subject}</option>)}
-                    </select>
-                  </div>
-                  <div className={fieldShellClass}>
-                    <span className={fieldLabelClass}>교육과정</span>
-                    <select
-                      value={effectiveMeta.curriculum ?? "22개정"}
-                      onChange={(e) => handleMetaChange({ ...meta, curriculum: e.target.value as Curriculum })}
-                      disabled={disabled}
-                      className={fieldInputClass}
-                    >
-                      {CURRICULUM_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
-                    </select>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-4 gap-x-4 gap-y-2">
-                  {isWorkbook ? (
-                    <>
-                      <div className={fieldShellClass}>
-                        <span className={fieldLabelClass}>출판사</span>
-                        <input
-                          type="text"
-                          value={effectiveMeta.publisher ?? ""}
-                          onChange={(e) => handleMetaChange({ ...meta, publisher: e.target.value })}
-                          placeholder="예: 미래엔, 천재"
-                          disabled={disabled}
-                          className={fieldInputClass}
-                        />
-                      </div>
-                      <div className={fieldShellClass}>
-                        <span className={fieldLabelClass}>교재명</span>
-                        <input
-                          type="text"
-                          value={effectiveMeta.bookTitle ?? ""}
-                          onChange={(e) => handleMetaChange({ ...meta, bookTitle: e.target.value })}
-                          placeholder="예: 오투, 체크체크"
-                          disabled={disabled}
-                          className={fieldInputClass}
-                        />
-                      </div>
-                      <div className={fieldShellClass}>
-                        <span className={fieldLabelClass}>유형</span>
-                        <select
-                          value={effectiveMeta.bookType ?? "본문"}
-                          onChange={(e) => handleMetaChange({ ...meta, bookType: e.target.value as WorkbookBookType })}
-                          disabled={disabled}
-                          className={fieldInputClass}
-                        >
-                          {WORKBOOK_TYPES.map((option) => <option key={option} value={option}>{option}</option>)}
-                        </select>
-                      </div>
-                      <div className={fieldShellClass}>
-                        <span className={fieldLabelClass}>버전</span>
-                        <select
-                          value={effectiveMeta.workbookRole ?? "student"}
-                          onChange={(e) => handleMetaChange(withWorkbookRole(meta, e.target.value as WorkbookRole))}
-                          disabled={disabled}
-                          className={fieldInputClass}
-                        >
-                          {WORKBOOK_ROLES.map((option) => (
-                            <option key={option.value} value={option.value}>{option.label}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className={fieldShellClass}>
-                        <span className={fieldLabelClass}>권/학기</span>
-                        <input
-                          type="text"
-                          value={effectiveMeta.bookVolume ?? ""}
-                          onChange={(e) => handleMetaChange({ ...meta, bookVolume: e.target.value, semester: e.target.value })}
-                          placeholder="예: 1학기, 2-1"
-                          disabled={disabled}
-                          className={fieldInputClass}
-                        />
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className={fieldShellClass}>
-                        <span className={fieldLabelClass}>학년도</span>
-                        <select
-                          value={effectiveMeta.year}
-                          onChange={(e) => handleMetaChange({ ...meta, year: Number(e.target.value) })}
-                          disabled={disabled}
-                          className={fieldInputClass}
-                        >
-                          {yearOptions.map((y) => (
-                            <option key={y} value={y}>{y}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className={fieldShellClass}>
-                        <span className={fieldLabelClass}>학교</span>
-                        <input
-                          type="text"
-                          value={effectiveMeta.school}
-                          onChange={(e) => handleMetaChange({ ...meta, school: e.target.value })}
-                          placeholder={effectiveMeta.schoolLevel === "중" ? "OO중학교" : "OO고등학교"}
-                          disabled={disabled}
-                          className={fieldInputClass}
-                        />
-                      </div>
-                      <div className={fieldShellClass}>
-                        <span className={fieldLabelClass}>학기</span>
-                        <select
-                          value={effectiveMeta.semester}
-                          onChange={(e) => handleMetaChange({ ...meta, semester: e.target.value })}
-                          disabled={disabled}
-                          className={fieldInputClass}
-                        >
-                          <option value="1학기">1학기</option>
-                          <option value="2학기">2학기</option>
-                        </select>
-                      </div>
-                      <div className={fieldShellClass}>
-                        <span className={fieldLabelClass}>시험</span>
-                        <select
-                          value={effectiveMeta.examType}
-                          onChange={(e) => handleMetaChange({ ...meta, examType: e.target.value })}
-                          disabled={disabled}
-                          className={fieldInputClass}
-                        >
-                          <option value="중간">중간</option>
-                          <option value="기말">기말</option>
-                          <option value="모의">모의</option>
-                        </select>
-                      </div>
-                      <div className={fieldShellClass}>
-                        <span className={fieldLabelClass}>범위</span>
-                        <input
-                          type="text"
-                          value={effectiveMeta.range}
-                          onChange={(e) => handleMetaChange({ ...meta, range: e.target.value })}
-                          placeholder="예: 물질의 구성~전기와 자기"
-                          disabled={disabled}
-                          className={fieldInputClass}
-                        />
-                      </div>
-                    </>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-4 gap-x-4 gap-y-2">
-                  {isWorkbook && (
-                    <>
-                      <div className={fieldShellClass}>
-                        <span className={fieldLabelClass}>범위</span>
-                        <input
-                          type="text"
-                          value={effectiveMeta.range}
-                          onChange={(e) => handleMetaChange({ ...meta, range: e.target.value })}
-                          placeholder="예: 생물의 구성~자극과 반응"
-                          disabled={disabled}
-                          className={fieldInputClass}
-                        />
-                      </div>
-                      <label className="flex items-center gap-1.5 min-w-0 text-[11px] text-muted-foreground font-bold">
-                        <input
-                          type="checkbox"
-                          checked={effectiveMeta.removeProblemIds ?? true}
-                          onChange={(e) => handleMetaChange({ ...meta, removeProblemIds: e.target.checked })}
-                          disabled={disabled}
-                          className="accent-primary w-3.5 h-3.5"
-                        />
-                        고유번호 제외
-                      </label>
-                      <label className="flex items-center gap-1.5 min-w-0 text-[11px] text-muted-foreground font-bold">
-                        <input
-                          type="checkbox"
-                          checked={effectiveMeta.removeImportanceTags ?? true}
-                          onChange={(e) => handleMetaChange({ ...meta, removeImportanceTags: e.target.checked })}
-                          disabled={disabled}
-                          className="accent-primary w-3.5 h-3.5"
-                        />
-                        중요 태그 제외
-                      </label>
-                      <label className="flex items-center gap-1.5 min-w-0 text-[11px] text-muted-foreground font-bold">
-                        <input
-                          type="checkbox"
-                          checked={effectiveMeta.removeQrCodes ?? true}
-                          onChange={(e) => handleMetaChange({ ...meta, removeQrCodes: e.target.checked })}
-                          disabled={disabled}
-                          className="accent-primary w-3.5 h-3.5"
-                        />
-                        QR 제외
-                      </label>
-                      <label className="flex items-center gap-1.5 min-w-0 text-[11px] text-muted-foreground font-bold">
-                        <input
-                          type="checkbox"
-                          checked={effectiveMeta.removePageFooters ?? true}
-                          onChange={(e) => handleMetaChange({ ...meta, removePageFooters: e.target.checked })}
-                          disabled={disabled}
-                          className="accent-primary w-3.5 h-3.5"
-                        />
-                        쪽수 제외
-                      </label>
-                    </>
-                  )}
-                  <label className="flex items-center gap-1.5 min-w-0 text-[11px] text-muted-foreground font-bold">
-                    <input
-                      type="checkbox"
-                      checked={effectiveMeta.showProblemMetadata ?? false}
-                      onChange={(e) => handleMetaChange({ ...meta, showProblemMetadata: e.target.checked })}
-                      disabled={disabled}
-                      className="accent-primary w-3.5 h-3.5"
-                    />
-                    중단원/난이도 표시
-                  </label>
-                  <div className={cn(fieldShellClass, isWorkbook ? "col-span-1" : "col-span-2")}>
-                    <span className={fieldLabelClass}>그림</span>
-                    <select
-                      value={effectiveMeta.figureMode ?? "original"}
-                      onChange={(e) => handleMetaChange({ ...meta, figureMode: e.target.value as FigureMode })}
-                      disabled={disabled}
-                      className={fieldInputClass}
-                    >
-                      {FIGURE_MODES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                    </select>
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-bold text-muted-foreground">
+            <span className="rounded-full border bg-background px-2.5 py-1">PDF 준비</span>
+            <span className="text-muted-foreground/40">→</span>
+            <span className="rounded-full border bg-background px-2.5 py-1">문제 추출</span>
+            <span className="text-muted-foreground/40">→</span>
+            <span className="rounded-full border bg-background px-2.5 py-1">HWPX 조립 설정</span>
+          </div>
         </div>
 
         {/* Partial Separator */}
-        <div className="hidden 2xl:block w-px h-16 bg-border/40 self-center mx-2" />
+        <div className="hidden" />
 
         {/* Section 2: AI Config */}
-        <div className="hidden 2xl:block px-6 py-3 min-w-[160px]">
+        <div className="hidden min-w-0 border-r px-5 py-3 xl:block">
           <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">AI Provider</div>
           <div className="flex flex-col gap-2">
             {AI_STAGE_KEYS.slice(0, 3).map((stageKey) => {
@@ -797,27 +1346,33 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
         </div>
 
         {/* Partial Separator */}
-        <div className="hidden 2xl:block w-px h-16 bg-border/40 self-center mx-2" />
+        <div className="hidden" />
 
         {/* Section 3: Job Status */}
-        <div className="hidden 2xl:block px-6 py-3 min-w-[130px]">
+        <div className="hidden min-w-0 border-r px-5 py-3 xl:block">
           <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">Status</div>
           <div className="flex items-center gap-2.5">
             <span className={cn("w-2 h-2 rounded-full ring-4 ring-offset-0", 
               isRunning ? "bg-yellow-500 animate-pulse ring-yellow-500/20" :
               isPaused ? "bg-blue-500 ring-blue-500/20" :
               !hasJob ? "bg-muted-foreground/20 ring-transparent" :
-              result?.status === "success" ? "bg-green-500 ring-green-500/20" : "bg-destructive ring-destructive/20"
+              result?.status === "success" || isCacheReviewSession ? "bg-green-500 ring-green-500/20" : "bg-destructive ring-destructive/20"
             )} />
             <span className="text-xs font-bold tracking-tight uppercase">
-              {isRunning ? "Running" : isPaused ? "Paused" : !hasJob ? "Idle" : result?.status === "success" ? "Success" : "Failed"}
+              {isRunning ? "Running" : isPaused ? "Paused" : !hasJob ? "Idle" : isCacheReviewSession ? "Review" : result?.status === "success" ? "Success" : "Failed"}
             </span>
           </div>
         </div>
 
         {/* Section 4: Global Actions */}
-        <div className="px-6 py-3 bg-muted/10 self-stretch flex flex-col justify-center gap-3 min-w-[240px] rounded-r-2xl border-l">
+        <div className="min-w-0 bg-muted/10 px-5 py-3 flex flex-col justify-center gap-2.5">
           {!hasJob && existingImages && (
+            <div className="bg-amber-100 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800/50 text-amber-800 dark:text-amber-200 px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm flex items-center gap-2">
+              <span className="flex h-2.5 w-2.5 rounded-full bg-amber-500 animate-pulse" />
+              {"\uC774\uC804 \uC791\uC5C5 \uACB0\uACFC\uAC00 \uC788\uC2B5\uB2C8\uB2E4. \uBA3C\uC800 \"\uACB0\uACFC \uBD88\uB7EC\uC624\uAE30\"\uB85C \uC0C1\uD0DC\uB97C \uD655\uC778\uD558\uC138\uC694."}
+            </div>
+          )}
+          {false && !hasJob && existingImages && (
             <div className="bg-amber-100 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800/50 text-amber-800 dark:text-amber-200 px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm flex items-center gap-2">
               <span className="flex h-2.5 w-2.5 rounded-full bg-amber-500 animate-pulse" />
               이전 작업이 존재합니다. &quot;작업 재개&quot;를 클릭하세요.
@@ -825,7 +1380,7 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
           )}
           <div className="flex items-center gap-2">
             {!hasJob ? (
-              <>
+              <div className="flex w-full items-center gap-2">
                 <Button
                   onClick={() => {
                     setQuestionModalOpen(false);
@@ -833,20 +1388,28 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
                     setCropperOpen(true);
                     queueMicrotask(() => cropperRef.current?.openFilePicker());
                   }}
-                  disabled={submitting}
+                  disabled={submitting || cacheReviewLoading}
                   variant="outline"
                   size="sm"
-                  className="h-9 flex-1 text-xs font-bold border-primary text-primary hover:bg-primary/5 transition-all shadow-sm active:scale-95 gap-2"
+                  className="h-9 min-w-[140px] flex-1 text-xs font-bold border-primary text-primary hover:bg-primary/5 transition-all shadow-sm active:scale-95 gap-2"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
                   PDF 열기
                 </Button>
+                <Button
+                  onClick={handleOpenResultSessions}
+                  disabled={submitting || cacheReviewLoading || resultSessionsLoading}
+                  size="sm"
+                  className="h-9 min-w-[140px] flex-1 bg-primary hover:bg-primary/85 text-primary-foreground font-bold shadow-md active:scale-95"
+                >
+                  {cacheReviewLoading || resultSessionsLoading ? "\uBD88\uB7EC\uC624\uB294 \uC911" : "\uACB0\uACFC \uBD88\uB7EC\uC624\uAE30"}
+                </Button>
                 {existingImages && (
-                  <Button onClick={handleResume} disabled={submitting} size="sm" className="h-9 flex-1 bg-amber-600 hover:bg-amber-700 text-white font-bold shadow-md active:scale-95">
+                  <Button onClick={handleResume} disabled={submitting || cacheReviewLoading} size="sm" className="h-9 min-w-[140px] flex-1 bg-amber-600 hover:bg-amber-700 text-white font-bold shadow-md active:scale-95">
                     작업 재개
                   </Button>
                 )}
-              </>
+              </div>
             ) : (
               <div className="flex gap-2 w-full">
                 {isRunning && (
@@ -861,7 +1424,15 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
                     <Button onClick={reset} variant="outline" size="sm" className="flex-1 h-9 text-xs font-bold border-muted-foreground/30">초기화</Button>
                   </>
                 )}
-                {status === "done" && !isFailed && (
+                {status === "done" && !isFailed && isCacheReviewSession && (
+                  <>
+                    <Button onClick={() => setFigureModalOpen(true)} size="sm" className="flex-1 h-9 text-xs font-bold shadow-lg shadow-primary/20">
+                      {"\uADF8\uB9BC \uACB0\uACFC \uD655\uC778"}
+                    </Button>
+                    <Button onClick={reset} variant="outline" size="sm" className="flex-1 h-9 text-xs font-bold">{"\uC0C8 \uC791\uC5C5"}</Button>
+                  </>
+                )}
+                {status === "done" && !isFailed && !isCacheReviewSession && (
                   <>
                     <DownloadButton jobId={jobId ?? ""} disabled={result?.status !== "success"} className="flex-1 h-9 text-xs font-bold shadow-lg shadow-primary/20" />
                     <Button onClick={reset} variant="outline" size="sm" className="flex-1 h-9 text-xs font-bold">새 작업</Button>
@@ -880,7 +1451,7 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
             </div>
           )}
           
-          <div className="flex flex-col gap-1.5">
+          <div className="hidden">
             <label
               className={cn(
                 "flex items-center gap-2 group",
@@ -1039,16 +1610,17 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
                     aiSettings.verifierMaxAttempts === 0 && "opacity-40",
                   )}
                 />
-              </label>
-            </div>
+            </label>
           </div>
         </div>
+        </div>
+      </div>
       </div>
 
       {/* Main Studio Body */}
       <div className="flex-1 flex gap-5 overflow-hidden">
         {/* Left Sidebar: Project Navigator */}
-        <div className="w-[400px] shrink-0 flex flex-col border rounded-2xl bg-card overflow-hidden shadow-sm">
+        <div className="w-[320px] xl:w-[340px] 2xl:w-[360px] shrink-0 flex flex-col border rounded-2xl bg-card overflow-hidden shadow-sm">
           <div className="shrink-0 px-5 py-3 border-b bg-muted/20 flex items-center justify-between">
             <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -1104,7 +1676,7 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
           <div className="shrink-0 border-b px-4 py-3 bg-muted/5">
             <PipelineView 
               mode="create" 
-              stages={stages.length > 0 ? stages : undefined} 
+              stages={stagesForDisplay.length > 0 ? stagesForDisplay : undefined} 
               orientation="horizontal" 
             />
           </div>
@@ -1121,14 +1693,45 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
                       setQuestionModalOpen(false);
                       setFigureModalOpen(true);
                     }}
+                    onStartBuilder={handleStartBuilder}
+                    builderLoading={builderStarting}
                   />
                 </div>
-                <div className="shrink-0 px-4 py-2 border-b bg-muted/20 flex items-center justify-between">
-                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Activity Log</span>
-                  <span className="text-[9px] text-muted-foreground/60">문제 클릭 → 팝업으로 상세 보기</span>
-                </div>
-                <div className="flex-1 overflow-y-auto p-4">
-                  <LogStream logs={logs} />
+                <OutputOptionsPanel
+                  meta={runtimeMeta}
+                  disabled={runtimeOptionsDisabled}
+                  onPatch={handleRuntimeMetaPatch}
+                  yearOptions={yearOptions}
+                />
+                <div className={cn(
+                  "flex-1 min-h-0 grid",
+                  activityLogCollapsed
+                    ? "grid-rows-[minmax(0,1fr)_42px]"
+                    : "grid-rows-[minmax(0,1fr)_128px] 2xl:grid-rows-[minmax(0,1fr)_160px]"
+                )}>
+                  <div className="min-h-0 overflow-y-auto">
+                    <QuestionDetailView />
+                  </div>
+                  <div className="min-h-0 border-t bg-muted/5 flex flex-col">
+                    <div className="shrink-0 px-4 py-2 border-b bg-muted/20 flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Activity Log</span>
+                      <div className="flex items-center gap-3">
+                        <span className="hidden xl:inline text-[9px] text-muted-foreground/60">문제 클릭 → 오른쪽 상세와 팝업 동시 이동</span>
+                        <button
+                          type="button"
+                          onClick={() => setActivityLogCollapsed((v) => !v)}
+                          className="rounded-md border px-2 py-0.5 text-[10px] font-bold text-muted-foreground hover:text-foreground hover:bg-background"
+                        >
+                          {activityLogCollapsed ? "로그 펼치기" : "로그 접기"}
+                        </button>
+                      </div>
+                    </div>
+                    {!activityLogCollapsed && (
+                      <div className="flex-1 min-h-0 overflow-y-auto p-3">
+                        <LogStream logs={logs} />
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -1139,36 +1742,145 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
 
 
       {/* Question Detail Modal — 네비게이터 클릭 시 표시 */}
+      {resultSessionsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+          <div className="w-full max-w-2xl max-h-[82vh] overflow-hidden rounded-2xl border bg-card shadow-2xl flex flex-col">
+            <div className="shrink-0 px-5 py-4 border-b flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <h2 className="text-sm font-bold">결과 불러오기</h2>
+                <p className="text-xs text-muted-foreground mt-1">작업 결과를 선택하면 검수 화면으로 바로 열립니다.</p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setResultSessionsOpen(false)}
+                disabled={cacheReviewLoading}
+                className="shrink-0"
+              >
+                닫기
+              </Button>
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-3">
+              {resultSessionsLoading && (
+                <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+                  결과 목록을 불러오는 중입니다.
+                </div>
+              )}
+
+              {!resultSessionsLoading && resultSessionsError && (
+                <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+                  {resultSessionsError}
+                </div>
+              )}
+
+              {!resultSessionsLoading && !resultSessionsError && resultSessions.length === 0 && (
+                <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+                  불러올 작업 결과가 없습니다.
+                </div>
+              )}
+
+              {!resultSessionsLoading && resultSessions.map((session) => {
+                const selected = selectedResultSessionId === session.id;
+                const totalCount = session.questionCount + session.essayCount;
+                return (
+                  <button
+                    key={session.id}
+                    type="button"
+                    onClick={() => setSelectedResultSessionId(session.id)}
+                    aria-pressed={selected}
+                    className={cn(
+                      "w-full text-left rounded-xl border p-4 transition-colors",
+                      selected
+                        ? "border-primary bg-primary/5 ring-2 ring-primary/20"
+                        : "border-border bg-background hover:bg-muted/40"
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-bold break-keep">{session.label}</span>
+                          {session.active && (
+                            <span className="rounded-full bg-green-500/10 px-2 py-0.5 text-[10px] font-bold text-green-700 border border-green-500/20">
+                              현재
+                            </span>
+                          )}
+                          {session.hasClean && (
+                            <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-bold text-blue-700 border border-blue-500/20">
+                              정리 이미지 있음
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {formatResultSessionTime(session.updatedAt)}
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <div className="text-sm font-bold">{totalCount}문제</div>
+                        {session.essayCount > 0 && (
+                          <div className="text-[10px] text-muted-foreground">서술형 {session.essayCount}</div>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="shrink-0 px-5 py-4 border-t bg-muted/10 flex items-center justify-between gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={loadResultSessions}
+                disabled={resultSessionsLoading || cacheReviewLoading}
+              >
+                새로고침
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  if (!selectedResultSessionId) return;
+                  void handleLoadCachedResults(selectedResultSessionId);
+                }}
+                disabled={!selectedResultSessionId || resultSessionsLoading || cacheReviewLoading}
+              >
+                {cacheReviewLoading ? "여는 중" : "선택 결과 열기"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <QuestionDetailModal
         open={questionModalOpen && hasJob}
         onClose={() => setQuestionModalOpen(false)}
       />
 
-      {/* Figure Review Modal — 그림 결과 확인 / 재생성 / HWPX 조립 진입점 */}
+      {/* Figure Review Modal — 그림 결과 확인 / 재생성 */}
       <FigureReviewModal
         open={figureModalOpen && hasJob}
         onClose={() => setFigureModalOpen(false)}
         entries={entries}
         jobId={jobId}
         globalLoading={figureGlobalLoading}
-        onConfirm={async () => {
-          setFigureGlobalLoading("confirm");
-          await handleConfirmFigure();
-          setFigureGlobalLoading(null);
-          setFigureModalOpen(false);
-        }}
         onRetryFigure={(qNum) => {
           if (!jobId) return;
           // figure 재시도 시 extractionReviewActive 초기화 — 그렇지 않으면
           // "그림 결과 확인" 버튼이 사라지고 "해설 생성 시작" 버튼이 잘못 노출됨.
           store.setExtractionReviewActive(false);
-          sendResumeAction(jobId, `resume --q=${qNum} --from=figure`, store);
+          sendResumeAction(jobId, `resume --q=${qNum} --from=figure`, store, runtimeMeta);
+        }}
+        onRetryQuestions={(qNums) => {
+          if (!jobId || qNums.length === 0) return;
+          store.setExtractionReviewActive(false);
+          sendResumeAction(jobId, `resume --q=${qNums.join(",")} --from=figure`, store, runtimeMeta);
         }}
         onRetryAll={async () => {
           if (!jobId || status === "running") return;
           store.setExtractionReviewActive(false);
           setFigureGlobalLoading("figure");
-          await sendResumeAction(jobId, "resume --from=figure", store);
+          await sendResumeAction(jobId, "resume --from=figure", store, runtimeMeta);
           setFigureGlobalLoading(null);
         }}
       />
@@ -1183,6 +1895,21 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
         autoSplitProvider={autoSplitProvider}
         autoSplitMode={autoSplitMode}
         onPdfSelected={handlePdfSelected}
+        workflowOptions={
+          <PdfWorkflowOptionsPanel
+            autoSplitActive={autoSplitActive}
+            autoSplitProvider={autoSplitProvider}
+            autoSplitMode={autoSplitMode}
+            autoSplitProviderMissing={autoSplitProviderMissing}
+            onAutoSplitToggle={handleAutoSplitToggle}
+            onAutoSplitProviderChange={handleAutoSplitProviderChange}
+            onAutoSplitModeChange={handleAutoSplitModeChange}
+            imageCleaningActive={imageCleaningActive}
+            cleaningProviderMissing={cleaningProviderMissing}
+            aiSettings={aiSettings}
+            onAISettingsChange={setAiSettings}
+          />
+        }
       />
 
       {/* Bottom Panel — build 결과 / followup chat 같은 이벤트성 UI 전용 */}

@@ -66,11 +66,19 @@ export function PipelineView({ stages, orientation = "vertical" }: PipelineViewP
   const displayStages = stages ?? defaults;
 
   if (orientation === "horizontal") {
+    const activeSummary = displayStages.find((stage) => stage.status === "running" && stage.summary)?.summary;
     return (
-      <div className="flex items-start gap-0 overflow-x-auto py-1">
-        {displayStages.map((stage, i) => (
-          <HorizontalStage key={stage.name} stage={stage} isLast={i === displayStages.length - 1} />
-        ))}
+      <div className="space-y-1">
+        <div className="flex items-start gap-0 overflow-x-auto py-1">
+          {displayStages.map((stage, i) => (
+            <HorizontalStage key={stage.name} stage={stage} isLast={i === displayStages.length - 1} />
+          ))}
+        </div>
+        {activeSummary && (
+          <div className="rounded-md border bg-background/70 px-3 py-1 text-[11px] font-medium text-muted-foreground">
+            {activeSummary}
+          </div>
+        )}
       </div>
     );
   }

@@ -1,4 +1,4 @@
-import type { CropBox, PdfRotation } from "./types";
+import type { CropBox, CropRegionType, PdfRotation } from "./types";
 
 interface Viewport {
   displayWidth: number;
@@ -82,13 +82,33 @@ export function clampBox(
   return { x, y, w: x2 - x, h: y2 - y };
 }
 
+export function cropRegionType(box: Pick<CropBox, "regionType">): CropRegionType {
+  return box.regionType ?? "problem";
+}
+
+export function isProblemBox(box: Pick<CropBox, "regionType" | "ownerBoxId" | "ownerNumber">): boolean {
+  return cropRegionType(box) === "problem" && !box.ownerBoxId && box.ownerNumber === undefined;
+}
+
 /**
  * 박스 배열의 현재 순서를 그대로 따라 1부터 번호 부여 (생성순/사용자 정렬순).
  * 위치(y,x) 기반 정렬은 하지 않는다 — 새 박스는 mouseup 시점에 배열 끝에
  * append되고, 박스 리스트 drag-and-drop 재정렬이 그대로 번호에 반영된다.
  */
 export function autoNumber(boxes: CropBox[]): CropBox[] {
-  return boxes.map((box, i) => ({ ...box, number: i + 1 }));
+  let nextProblemNumber = 1;
+  return boxes.map((box) => {
+    if (isProblemBox(box)) {
+      return {
+        ...box,
+        regionType: box.regionType ?? "problem",
+        ownerNumber: undefined,
+        ownerBoxId: undefined,
+        number: nextProblemNumber++,
+      };
+    }
+    return box;
+  });
 }
 
 /**

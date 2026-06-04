@@ -57,6 +57,7 @@ export function buildCodexExecArgs(
   return [
     "exec",
     "--json",
+    "--skip-git-repo-check",
     "--cd",
     cwd,
     "--sandbox",

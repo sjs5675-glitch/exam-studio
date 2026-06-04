@@ -10,12 +10,17 @@ import { useSortedEntries } from "./hooks";
 /** 상단 컨트롤 bar: 추출 편집 진행 / 추출 결과 검증 / Figure 확인 버튼 진입점. */
 export function QuestionPanelHeader({
   onOpenFigureModal,
+  onStartBuilder,
+  builderLoading,
 }: {
   onOpenFigureModal?: () => void;
+  onStartBuilder?: () => void;
+  builderLoading?: boolean;
 }) {
   const entries = useSortedEntries();
   const jobId = useJobStore((s) => s.jobId);
   const status = useJobStore((s) => s.status);
+  const stages = useJobStore((s) => s.stages);
   const reviewActive = useJobStore((s) => s.extractionReviewActive);
   const setReviewActive = useJobStore((s) => s.setExtractionReviewActive);
   const store = useJobStore();
@@ -27,15 +32,30 @@ export function QuestionPanelHeader({
     [entries]
   );
   const loadedFigureCount = useMemo(
-    () => figureProblems.filter((q) => q.figure?.status === "ok").length,
+    () => figureProblems.filter((q) => q.figure && q.figure.status !== "failed").length,
+    [figureProblems]
+  );
+  const blockedFigureCount = useMemo(
+    () => figureProblems.filter((q) => !q.figure || q.figure.status === "failed").length,
+    [figureProblems]
+  );
+  const uncertainFigureCount = useMemo(
+    () => figureProblems.filter((q) => q.figure?.status === "boundary_uncertain").length,
     [figureProblems]
   );
   const figureProblemCount = figureProblems.length;
-  const allFiguresLoaded = figureProblemCount === 0 || loadedFigureCount >= figureProblemCount;
+  const allFiguresLoaded = figureProblemCount === 0 || blockedFigureCount === 0;
 
   if (entries.length === 0) return null;
   const doneCount = entries.filter((q) => q.verified || q.solved).length;
   const isDone = status === "done" || status === "failed";
+  const builderStage = stages.find((s) => s.name === "builder");
+  const canStartBuilder =
+    !reviewActive &&
+    isDone &&
+    Boolean(onStartBuilder) &&
+    builderStage?.status !== "done" &&
+    builderStage?.status !== "running";
 
   const handleGlobalAction = async (from: string) => {
     if (!jobId || status === "running") return;
@@ -105,7 +125,27 @@ export function QuestionPanelHeader({
               !allFiguresLoaded && "bg-amber-600 hover:bg-amber-700 text-white animate-pulse"
             )}
           >
-            그림 결과 확인 ({loadedFigureCount}/{figureProblemCount}{allFiguresLoaded ? " ✓" : ""})
+            그림 결과 확인 ({loadedFigureCount}/{figureProblemCount}
+            {blockedFigureCount > 0 ? ` · 재생성 ${blockedFigureCount}` : uncertainFigureCount > 0 ? ` · 확인 ${uncertainFigureCount}` : " ✓"})
+          </Button>
+        </div>
+      )}
+
+      {canStartBuilder && (
+        <div className="pb-2 border-b">
+          <Button
+            size="sm"
+            disabled={builderLoading || globalLoading !== null || !allFiguresLoaded}
+            onClick={onStartBuilder}
+            className="h-8 text-xs w-full"
+          >
+            {builderLoading ? (
+              <svg className="w-3 h-3 animate-spin mr-1" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            ) : null}
+            {allFiguresLoaded ? "HWPX 조립 시작" : "그림 확인 후 HWPX 조립"}
           </Button>
         </div>
       )}

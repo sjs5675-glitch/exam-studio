@@ -9,6 +9,7 @@ import {
   autoNumber,
   normalizedBboxToCropBox,
   mirrorBoxX,
+  isProblemBox,
 } from "../coords";
 import type { CropBox } from "../types";
 
@@ -180,6 +181,22 @@ describe("autoNumber", () => {
     const originalOrder = boxes.map((b) => b.id);
     autoNumber(boxes);
     expect(boxes.map((b) => b.id)).toEqual(originalOrder);
+  });
+
+  it("keeps owned problem regions attached to their parent instead of numbering them as new questions", () => {
+    const boxes: CropBox[] = [
+      { id: "q1", page: 0, x: 0, y: 0, w: 200, h: 80, number: 0, regionType: "problem" },
+      { id: "q1-extra", page: 0, x: 0, y: 120, w: 200, h: 80, number: 1, regionType: "problem", ownerBoxId: "q1" },
+      { id: "q2", page: 0, x: 0, y: 240, w: 200, h: 80, number: 0, regionType: "problem" },
+    ];
+
+    const result = autoNumber(boxes);
+    expect(result.map((box) => [box.id, box.number])).toEqual([
+      ["q1", 1],
+      ["q1-extra", 1],
+      ["q2", 2],
+    ]);
+    expect(result.filter(isProblemBox).map((box) => box.id)).toEqual(["q1", "q2"]);
   });
 });
 

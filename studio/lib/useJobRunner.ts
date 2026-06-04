@@ -9,7 +9,37 @@ import { applySSEEvent } from "./sseClient";
 import type { ExamMetaInput, FigureMode } from "@/lib/exam/meta";
 
 // SSE server runs on a separate port to avoid Next.js response buffering
-const SSE_BASE = process.env.NEXT_PUBLIC_SSE_URL ?? "http://localhost:3021";
+const SSE_BASE = process.env.NEXT_PUBLIC_SSE_URL ?? "http://localhost:3031";
+
+const SSE_CONNECTION_HINT =
+  "작업 서버(3031)에 연결할 수 없습니다. v2 작업 서버가 실행 중인지 확인하세요.";
+
+async function assertSseServerReady(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) {
+    throw new DOMException("Aborted", "AbortError");
+  }
+
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 3000);
+  const onAbort = () => controller.abort();
+  signal.addEventListener("abort", onAbort, { once: true });
+
+  try {
+    const res = await fetch(`${SSE_BASE}/api/heartbeat`, {
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      throw new Error(`heartbeat returned ${res.status}`);
+    }
+  } catch (err) {
+    if (signal.aborted) throw err;
+    throw new Error(SSE_CONNECTION_HINT);
+  } finally {
+    window.clearTimeout(timer);
+    signal.removeEventListener("abort", onAbort);
+  }
+}
 
 function resolveFigureSettings(
   meta: ExamMetaInput | undefined,
@@ -112,6 +142,8 @@ export function useJobRunner() {
       const figureSettings = resolveFigureSettings(meta, aiSettings);
 
       try {
+        await assertSseServerReady(abortController.signal);
+
         const res = await fetch(`${SSE_BASE}/api/run`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -187,11 +219,14 @@ export function useJobRunner() {
       } catch (err) {
         // AbortError는 사용자가 중단한 것이므로 무시
         if (err instanceof DOMException && err.name === "AbortError") return;
+        const message = err instanceof Error && err.message === SSE_CONNECTION_HINT
+          ? err.message
+          : `연결 오류: ${err instanceof Error ? err.message : "알 수 없음"}`;
         store.setStatus("failed");
         store.addLog({
           timestamp: new Date().toISOString(),
           stage: "system",
-          message: `연결 오류: ${err instanceof Error ? err.message : "알 수 없음"}`,
+          message,
           level: "error",
         });
       } finally {

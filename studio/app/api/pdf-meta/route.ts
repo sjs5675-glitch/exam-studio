@@ -6,6 +6,7 @@ import { readFile } from "fs/promises";
 import { readPdfMetaFromBuffer } from "@/lib/pdf/pdfMeta";
 import { normalizePdfRotation } from "@/lib/cropper/coords";
 import { getDataRoot } from "@/lib/server/paths";
+import { resolvePythonCommand } from "@/lib/server/python";
 
 const execFileAsync = promisify(execFile);
 const BASE_DIR = getDataRoot();
@@ -55,16 +56,23 @@ print(json.dumps({"pages": pages, "page0Width": width, "page0Height": height, "d
     });
 
     try {
-      const pythonCmd = process.platform === "win32" ? "python" : "python3";
+      const pythonCmd = resolvePythonCommand({ baseDir: BASE_DIR });
       const { stdout } = await execFileAsync(pythonCmd, ["-c", script, args], {
         timeout: 15000,
+        env: { ...process.env, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" },
       });
 
       const meta = JSON.parse(stdout.trim());
       return NextResponse.json(meta);
-    } catch {
-      const buffer = await readFile(fullPath);
-      return NextResponse.json(readPdfMetaFromBuffer(buffer, dpi, rotation));
+    } catch (pythonErr) {
+      try {
+        const buffer = await readFile(fullPath);
+        return NextResponse.json(readPdfMetaFromBuffer(buffer, dpi, rotation));
+      } catch (fallbackErr) {
+        const pythonMessage = pythonErr instanceof Error ? pythonErr.message : "PyMuPDF metadata extraction failed";
+        const fallbackMessage = fallbackErr instanceof Error ? fallbackErr.message : "PDF fallback metadata extraction failed";
+        throw new Error(`${fallbackMessage}; PyMuPDF failed first: ${pythonMessage}`);
+      }
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : "PDF metadata extraction failed";

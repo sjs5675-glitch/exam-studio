@@ -93,6 +93,15 @@ describe("checkRawEscapes (xml.raw_escape)", () => {
   });
 });
 
+describe("checker text node parsing", () => {
+  it("ignores self-closing hp:t tags when collecting visible text", () => {
+    const xml = wrapSection(`<hp:run><hp:t/></hp:run><hp:run><hp:t>&#44032;</hp:t></hp:run>`);
+    const issues = runDeterministicCheckerRules(xml);
+    expect(issues.filter((i) => i.ruleId === "text.raw_equation_xml")).toHaveLength(0);
+    expect(issues.filter((i) => i.ruleId === "text.english_word")).toHaveLength(0);
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 3. Deterministic rule: text.difficulty_vocabulary
 // ─────────────────────────────────────────────────────────────────────────────

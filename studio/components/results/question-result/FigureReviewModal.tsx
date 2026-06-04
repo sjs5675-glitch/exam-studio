@@ -11,8 +11,8 @@ export function FigureReviewModal({
   entries,
   jobId,
   globalLoading,
-  onConfirm,
   onRetryFigure,
+  onRetryQuestions,
   onRetryAll,
 }: {
   open: boolean;
@@ -20,8 +20,8 @@ export function FigureReviewModal({
   entries: QuestionResult[];
   jobId: string | null;
   globalLoading: string | null;
-  onConfirm: () => void;
   onRetryFigure: (qNum: number) => void;
+  onRetryQuestions: (qNums: number[]) => void;
   onRetryAll: () => void;
 }) {
   const figureProblems = useMemo(
@@ -79,10 +79,33 @@ export function FigureReviewModal({
     () => figureProblems.filter((q) => q.figure?.status === "failed"),
     [figureProblems]
   );
+  const missingProblems = useMemo(
+    () => figureProblems.filter((q) => !q.figure),
+    [figureProblems]
+  );
+  const uncertainProblems = useMemo(
+    () => figureProblems.filter((q) => q.figure?.status === "boundary_uncertain"),
+    [figureProblems]
+  );
+  const blockedProblems = useMemo(
+    () => [...missingProblems, ...failedProblems].sort((a, b) => a.number - b.number),
+    [missingProblems, failedProblems]
+  );
 
-  const allLoaded =
-    figureProblems.length === 0 ||
-    figureProblems.every((q) => loadedSet.has(q.number) || q.figure?.status === "failed");
+  const handleRetryBlocked = () => {
+    const nums = blockedProblems.map((q) => q.number);
+    if (nums.length === 0) return;
+    for (const q of blockedProblems) {
+      regenBaselineRef.current[q.number] = q.updatedAt ?? "";
+    }
+    setLoadedSet((prev) => {
+      const s = new Set(prev);
+      for (const q of blockedProblems) s.delete(q.number);
+      return s;
+    });
+    setRegenerating(new Set(nums));
+    onRetryQuestions(nums);
+  };
 
   // ESC 닫기 (QuestionDetailModal 패턴 그대로)
   useEffect(() => {
@@ -122,6 +145,16 @@ export function FigureReviewModal({
                 실패 {failedProblems.length}개
               </span>
             )}
+            {missingProblems.length > 0 && (
+              <span className="text-[10px] font-bold text-destructive">
+                누락 {missingProblems.length}개
+              </span>
+            )}
+            {uncertainProblems.length > 0 && (
+              <span className="text-[10px] font-bold text-amber-600">
+                확인필요 {uncertainProblems.length}개
+              </span>
+            )}
           </div>
           <button
             onClick={onClose}
@@ -151,15 +184,27 @@ export function FigureReviewModal({
                 <h4 className="text-xs font-medium text-muted-foreground">
                   그림 생성 결과 ({loadedSet.size}/{figureProblems.length})
                 </h4>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleRetryAll}
-                  disabled={!jobId || globalLoading !== null || regenerating.size > 0}
-                  className="h-7 text-xs"
-                >
-                  전체 재생성
-                </Button>
+                <div className="flex items-center gap-2">
+                  {blockedProblems.length > 0 && (
+                    <Button
+                      size="sm"
+                      onClick={handleRetryBlocked}
+                      disabled={!jobId || globalLoading !== null || regenerating.size > 0}
+                      className="h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white"
+                    >
+                      문제 있는 그림 재생성 ({blockedProblems.length})
+                    </Button>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRetryAll}
+                    disabled={!jobId || globalLoading !== null || regenerating.size > 0}
+                    className="h-7 text-xs"
+                  >
+                    전체 재생성
+                  </Button>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -177,16 +222,24 @@ export function FigureReviewModal({
                     `inputs/시험지 제작/.v3cache/prob${q.number}_ref.jpg`
                   )}&v=${v}`;
                   const loaded = loadedSet.has(q.number);
+                  const isMissing = !q.figure;
                   const isFailed = q.figure?.status === "failed";
+                  const isUncertain = q.figure?.status === "boundary_uncertain";
                   const isRegenerating = regenerating.has(q.number);
                   return (
                     <div
                       key={q.number}
-                      className={`space-y-2 rounded-lg p-3 ${isFailed ? "border border-destructive/30 bg-destructive/5" : "border border-border/40"}`}
+                      className={`space-y-2 rounded-lg p-3 ${
+                        isMissing || isFailed
+                          ? "border border-destructive/30 bg-destructive/5"
+                          : isUncertain
+                            ? "border border-amber-400/40 bg-amber-50/40 dark:bg-amber-950/10"
+                            : "border border-border/40"
+                      }`}
                     >
                       <div className="flex items-center justify-between">
-                        <span className={`text-sm font-bold ${isFailed && !isRegenerating ? "text-destructive" : "text-foreground"}`}>
-                          {q.number}번 {isRegenerating ? "재생성 중..." : isFailed ? "✗ 생성 실패" : loaded ? "✓" : "생성 중..."}
+                        <span className={`text-sm font-bold ${(isMissing || isFailed) && !isRegenerating ? "text-destructive" : isUncertain ? "text-amber-700 dark:text-amber-300" : "text-foreground"}`}>
+                          {q.number}번 {isRegenerating ? "재생성 중..." : isMissing ? "결과 없음" : isFailed ? "생성 실패" : isUncertain ? "확인 필요" : loaded ? "완료" : "불러오는 중..."}
                         </span>
                         <Button
                           variant="outline"
@@ -198,15 +251,7 @@ export function FigureReviewModal({
                           재생성
                         </Button>
                       </div>
-                      {isFailed && !isRegenerating ? (
-                        <div className="rounded border border-destructive/20 bg-destructive/5 p-3 text-[10px] text-destructive/70 text-center min-h-[60px] flex items-center justify-center">
-                          {q.figure?.error
-                            ? <span className="font-mono break-all">{q.figure.error}</span>
-                            : <span>figure_processor.py 실패</span>
-                          }
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-2 gap-2">
                           <div className="space-y-1">
                             <p className="text-[10px] text-muted-foreground text-center">크롭 원본</p>
                             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -216,6 +261,14 @@ export function FigureReviewModal({
                               className="w-full rounded border bg-white"
                             />
                           </div>
+                          {(isMissing || isFailed) && !isRegenerating ? (
+                            <div className="rounded border border-destructive/20 bg-destructive/5 p-3 text-[10px] text-destructive/70 text-center min-h-[120px] flex items-center justify-center">
+                              {q.figure?.error
+                                ? <span className="font-mono break-all">{q.figure.error}</span>
+                                : <span>생성 결과가 없습니다. 이 문제만 재생성하세요.</span>
+                              }
+                            </div>
+                          ) : (
                           <div className="space-y-1">
                             <p className="text-[10px] text-muted-foreground text-center">생성된 그림</p>
                             {/* 박스 크기는 이미지가 그대로 유지하고, 재생성 중엔 스피너를 위에 오버레이 — 레이아웃 흔들림 방지. */}
@@ -232,10 +285,12 @@ export function FigureReviewModal({
                                 }
                                 onError={(e) => {
                                   const img = e.currentTarget;
-                                  if (img.dataset.fallback === "ref") return;
-                                  img.dataset.fallback = "ref";
-                                  img.src = refSrc;
-                                  setLoadedSet((prev) => new Set([...prev, q.number]));
+                                  img.dataset.broken = "true";
+                                  setLoadedSet((prev) => {
+                                    const s = new Set(prev);
+                                    s.delete(q.number);
+                                    return s;
+                                  });
                                 }}
                               />
                               {isRegenerating && (
@@ -249,8 +304,8 @@ export function FigureReviewModal({
                               )}
                             </div>
                           </div>
+                          )}
                         </div>
-                      )}
                     </div>
                   );
                 })}
@@ -258,39 +313,15 @@ export function FigureReviewModal({
             </>
           )}
 
-          {/* 확인 CTA — handleConfirmFigure(startJob, resumeFrom:"confirm") 경로 */}
+          {/* 확인 CTA */}
           <div className="pt-2">
             <Button
+              variant="outline"
               size="sm"
-              disabled={!jobId || globalLoading !== null || !allLoaded}
-              onClick={onConfirm}
+              onClick={onClose}
               className="h-9 text-xs w-full"
             >
-              {globalLoading === "confirm" ? (
-                <svg
-                  className="w-3 h-3 animate-spin mr-1"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                  />
-                </svg>
-              ) : !allLoaded ? (
-                `그림 생성 중... (${loadedSet.size}/${figureProblems.length})`
-              ) : (
-                "그림 확인 완료 — HWPX 조립 시작"
-              )}
+              그림 확인 닫기
             </Button>
           </div>
         </div>

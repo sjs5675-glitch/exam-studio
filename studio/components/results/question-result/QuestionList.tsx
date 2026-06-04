@@ -60,11 +60,11 @@ function QuestionListItem({
       figDotTitle = "그림 완료";
     } else if (fig.status === "failed") {
       figDotCls = "bg-destructive/70";
-      figDotTitle = "그림 실패";
+      figDotTitle = fig.error ? `그림 재생성 필요: ${fig.error}` : "그림 재생성 필요";
     } else {
       // boundary_uncertain
       figDotCls = "bg-amber-400/70";
-      figDotTitle = "그림 경계 재조정 필요";
+      figDotTitle = "그림 생성됨, 확인 필요";
     }
   } else if (hasFigure) {
     figDotCls = "bg-muted";

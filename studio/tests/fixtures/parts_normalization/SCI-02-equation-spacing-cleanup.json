@@ -1,0 +1,22 @@
+{
+  "id": "SCI-02",
+  "description": "Science equation spacing artifacts are removed before HWPX assembly",
+  "input": {
+    "parts": [
+      { "eq": "a = 20 over { 0 . 5 }" },
+      { "eq": "= 40 ~ rm{m} / rm{ {s} }^2" },
+      { "eq": "20 ~ rm{N} cdot rm{s}" },
+      { "eq": "p_{ rm{A} } = m_{ rm{A} }" },
+      { "eq": "I_{ 0 sim 1 } = I_{ 1 sim 2 }" }
+    ]
+  },
+  "expected": {
+    "parts": [
+      { "eq": "a = 20 over { 0.5 }" },
+      { "eq": "= 40 rm{m}/rm{s}^2" },
+      { "eq": "20 rm{N}·rm{s}" },
+      { "eq": "p_{rm{A}} = m_{rm{A}}" },
+      { "eq": "I_{0 sim 1} = I_{1 sim 2}" }
+    ]
+  }
+}

@@ -45,6 +45,29 @@ def pdf_page_to_pil(page, dpi=DPI, rotation=0, flip=False):
     return img
 
 
+def parse_page_indices(value, total_pages):
+    if not value:
+        return list(range(total_pages))
+    selected = []
+    seen = set()
+    for raw in value.split(","):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            page_index = int(raw)
+        except ValueError:
+            raise ValueError(f"invalid page index: {raw}") from None
+        if page_index < 0 or page_index >= total_pages:
+            raise ValueError(f"page index out of range: {page_index}")
+        if page_index not in seen:
+            seen.add(page_index)
+            selected.append(page_index)
+    if not selected:
+        raise ValueError("--pages must include at least one page")
+    return selected
+
+
 def find_codex_bin():
     explicit = os.environ.get("CODEX_BIN")
     if explicit:
@@ -127,6 +150,8 @@ def build_prompt(page_num, total_pages):
 
         Task:
         Find each individual problem region on this page and return normalized bounding boxes.
+        Also estimate important sub-regions inside each problem so the user can correct them later:
+        figure, table, passage, and exclude.
 
         Rules:
         - Layouts may be single-column, two-column, mixed workbook layouts, or dense Korean science worksheets.
@@ -142,6 +167,15 @@ def build_prompt(page_num, total_pages):
         - If the page is only answers/solutions/explanations with no student-facing problem bodies, set "answer_page": true and return no questions.
         - If blue teacher answers are written over a normal student problem page, do not mark it as an answer page; still return the problem boxes.
         - Coordinates must be [y_min, x_min, y_max, x_max] on a 0-1000 normalized image coordinate system.
+        - For each question, include an optional "regions" array. Each region must stay inside or near its owning problem box.
+        - Do not create sub-region boxes for normal answer choices, circled choice numbers, <보기> choice lists, or ㄱ/ㄴ/ㄷ option lists. Keep those inside the main problem box only.
+        - Region "type" values:
+          - "figure": visual materials such as diagrams, photos, graphs, charts, maps, or apparatus pictures.
+          - "table": true tables, data grids, boxed numerical data, or answer matrices.
+          - "passage": long reading passages, shared long text/data descriptions, experiment procedure text, apparatus setup descriptions, observation/result descriptions, or full experiment-material blocks. Do not use this for short <보기>, ㄱ/ㄴ/ㄷ lists, or circled answer choices.
+          - "exclude": decorations, workbook badges, page UI, irrelevant labels that should not drive typing.
+        - Do not return an "experiment" region type. Experimental text/material belongs to "passage"; a standalone apparatus picture belongs to "figure".
+        - If a shared long stem such as [08~09] belongs to multiple problems, attach the shared figure/passage regions to the first related problem and keep the next problem separate.
         - Every question must include "kind":
           - "regular" for multiple choice, short answer, or normal numbered problems.
           - "essay" for explicit 서술형 problems.
@@ -151,7 +185,15 @@ def build_prompt(page_num, total_pages):
         {{
           "answer_page": false,
           "questions": [
-            {{"number": 1, "kind": "regular", "box_2d": [y_min, x_min, y_max, x_max]}}
+            {{
+              "number": 1,
+              "kind": "regular",
+              "box_2d": [y_min, x_min, y_max, x_max],
+              "regions": [
+                {{"type": "figure", "box_2d": [y_min, x_min, y_max, x_max], "label": "diagram"}},
+                {{"type": "table", "box_2d": [y_min, x_min, y_max, x_max], "label": "data table"}}
+              ]
+            }}
           ]
         }}
         """
@@ -262,6 +304,52 @@ def normalize_box(raw_box):
     return [round(y_min), round(x_min), round(y_max), round(x_max)]
 
 
+def normalize_region_type(value):
+    raw = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "image": "figure",
+        "diagram": "figure",
+        "graph": "figure",
+        "chart": "figure",
+        "data_table": "table",
+        "data_box": "table",
+        "stem": "passage",
+        "stimulus": "passage",
+        "source": "passage",
+        "text": "passage",
+        "experiment": "passage",
+        "lab": "passage",
+        "apparatus": "passage",
+        "setup": "passage",
+        "ignore": "exclude",
+        "decoration": "exclude",
+    }
+    raw = aliases.get(raw, raw)
+    return raw if raw in {"figure", "table", "passage", "exclude"} else None
+
+
+def normalize_region(raw_region, owner_number=None):
+    if not isinstance(raw_region, dict):
+        return None
+    region_type = normalize_region_type(raw_region.get("type", raw_region.get("regionType")))
+    box = normalize_box(raw_region.get("box_2d", raw_region.get("bbox")))
+    if not region_type or box is None:
+        return None
+    region = {
+        "type": region_type,
+        "bbox": box,
+    }
+    if owner_number is not None:
+        region["ownerNumber"] = owner_number
+    label = raw_region.get("label")
+    if isinstance(label, str) and label.strip():
+        region["label"] = label.strip()[:80]
+    instruction = raw_region.get("instruction")
+    if isinstance(instruction, str) and instruction.strip():
+        region["instruction"] = instruction.strip()[:300]
+    return region
+
+
 def normalize_page_result(raw):
     if isinstance(raw, dict) and isinstance(raw.get("pages"), list) and raw["pages"]:
         raw = raw["pages"][0]
@@ -280,11 +368,19 @@ def normalize_page_result(raw):
             if box is None:
                 continue
             num, kind = resolve_num_kind(q)
-            questions.append({
+            regions = []
+            for raw_region in q.get("regions", []):
+                region = normalize_region(raw_region, owner_number=num)
+                if region:
+                    regions.append(region)
+            item = {
                 "number": num,
                 "kind": kind,
                 "bbox": box,
-            })
+            }
+            if regions:
+                item["regions"] = regions
+            questions.append(item)
 
     return {
         "answerPage": answer_page,
@@ -299,6 +395,7 @@ def main():
     parser.add_argument("--json-only", action="store_true", help="Print crop coordinates as JSON")
     parser.add_argument("--rotation", type=float, default=0, help="Page rotation. Normalized to 0/90/180/270.")
     parser.add_argument("--flip", action="store_true", default=False, help="Mirror page horizontally after rotation.")
+    parser.add_argument("--pages", default=None, help="Comma-separated zero-based PDF page indexes to process.")
     parser.add_argument("--page-timeout-sec", type=int, default=DEFAULT_PAGE_TIMEOUT_SEC)
     parser.add_argument(
         "--fail-fast",
@@ -326,20 +423,25 @@ def main():
 
     doc = fitz.open(pdf_path)
     total_pages = len(doc)
+    try:
+        selected_page_indices = parse_page_indices(args.pages, total_pages)
+    except ValueError as exc:
+        print(f"오류: {exc}", file=sys.stderr)
+        sys.exit(1)
     page_pils = []
-    for i in range(total_pages):
-        page_pils.append(pdf_page_to_pil(doc[i], rotation=rotation, flip=flip))
+    for page_index in selected_page_indices:
+        page_pils.append((page_index, pdf_page_to_pil(doc[page_index], rotation=rotation, flip=flip)))
     doc.close()
 
     pages_out = []
     warnings = []
     with tempfile.TemporaryDirectory(prefix="exam-codex-crop-") as tmp:
         tmpdir = Path(tmp)
-        for idx, pil_img in enumerate(page_pils):
-            page_num = idx + 1
+        for processed_idx, (source_page_index, pil_img) in enumerate(page_pils):
+            page_num = source_page_index + 1
             image_path = tmpdir / f"page_{page_num:03d}.png"
             pil_img.save(image_path)
-            print(f"Codex auto-crop page {page_num}/{total_pages}...", file=sys.stderr)
+            print(f"Codex auto-crop page {processed_idx + 1}/{len(page_pils)}...", file=sys.stderr)
 
             try:
                 raw_result = run_codex_for_page(
@@ -357,7 +459,7 @@ def main():
                     raise
                 print(f"경고: page {page_num} 자동분할 실패 — {message}", file=sys.stderr)
                 warnings.append({
-                    "pageIndex": idx,
+                    "pageIndex": source_page_index,
                     "page": page_num,
                     "message": message[:1200],
                 })
@@ -367,7 +469,7 @@ def main():
                 }
 
             pages_out.append({
-                "pageIndex": idx,
+                "pageIndex": source_page_index,
                 "imageWidth": pil_img.width,
                 "imageHeight": pil_img.height,
                 "answerPage": page_result["answerPage"],

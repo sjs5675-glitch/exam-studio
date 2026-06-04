@@ -14,10 +14,11 @@ interface CropperModalProps {
   autoSplitProvider: ImageProviderId;
   autoSplitMode: AutoCropMode;
   onPdfSelected: (path: string) => void;
+  workflowOptions?: React.ReactNode;
 }
 
 export const CropperModal = forwardRef<CropperWorkspaceRef, CropperModalProps>(
-  function CropperModal({ open, onClose, onExtract, autoSplitOnUpload, autoSplitProvider, autoSplitMode, onPdfSelected }, ref) {
+  function CropperModal({ open, onClose, onExtract, autoSplitOnUpload, autoSplitProvider, autoSplitMode, onPdfSelected, workflowOptions }, ref) {
     useEffect(() => {
       if (!open) return;
       const onKey = (e: KeyboardEvent) => {
@@ -35,7 +36,7 @@ export const CropperModal = forwardRef<CropperWorkspaceRef, CropperModalProps>(
         onClick={onClose}
       >
         <div
-          className="bg-background border border-border shadow-2xl w-[96vw] max-w-[1000px] h-[95vh] flex flex-col overflow-hidden rounded-2xl"
+          className="bg-background border border-border shadow-2xl w-[99vw] h-[98vh] flex flex-col overflow-hidden rounded-xl"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="shrink-0 px-6 py-4 border-b flex items-center justify-between bg-muted/5">
@@ -69,6 +70,7 @@ export const CropperModal = forwardRef<CropperWorkspaceRef, CropperModalProps>(
               autoSplitProvider={autoSplitProvider}
               autoSplitMode={autoSplitMode}
               onPdfSelected={onPdfSelected}
+              workflowOptions={workflowOptions}
             />
           </div>
         </div>

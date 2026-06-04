@@ -122,7 +122,7 @@ export async function runFigureStage(
     command: python,
     args,
     cwd: baseDir,
-    timeoutMs: 300_000, // 5 minutes for image generation
+    timeoutMs: 1_200_000, // 20 minutes; Codex image generation can finish the PNG before the CLI exits.
     signal: input.signal,
     ...(input.env ? { env: input.env } : {}),
   });

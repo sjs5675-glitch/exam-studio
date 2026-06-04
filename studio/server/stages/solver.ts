@@ -29,6 +29,7 @@ export interface SolverStageInput {
   examMeta?: ExamMeta;
   cache: StageCache;
   provider?: AIProviderAdapter;
+  cwd?: string;
   validateEquation?: (content: string) => string | undefined;
   signal?: AbortSignal;
 }
@@ -54,7 +55,7 @@ export async function runSolverStage(input: SolverStageInput): Promise<ModelStag
     examMeta: input.examMeta,
   });
   const prompt = system + "\n\n" + user;
-  const providerResult = provider.run(prompt, { stageKey: "create.solver", signal: input.signal });
+  const providerResult = provider.run(prompt, { stageKey: "create.solver", cwd: input.cwd, signal: input.signal });
   const { text, exitCode } = await collectProviderText(providerResult);
 
   if (exitCode !== 0) {

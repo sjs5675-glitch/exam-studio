@@ -171,6 +171,101 @@ def _empty_cell(cell_xml):
     return cell_xml
 
 
+def _parts_to_cell_paragraph(parts, height=1600):
+    content = ""
+    max_eq = (1000, 1000, 850, 600)
+    for part in normalize_parts(parts or []):
+        if "eq" in part:
+            content += make_equation_xml(part["eq"])
+            params = lineseg_params_for_eq(part["eq"])
+            if params[0] > max_eq[0]:
+                max_eq = params
+        elif "t" in part:
+            content += f'<hp:t>{xml_escape(part["t"])}</hp:t>'
+    if not content:
+        content = '<hp:t/>'
+    line_h = max(height - 300, max_eq[0])
+    return (f'<hp:p id="2147483648" paraPrIDRef="3" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">'
+            f'<hp:run charPrIDRef="1">{content}</hp:run>'
+            f'{make_lineseg(0, line_h, max(max_eq[1], line_h), max(max_eq[2], int(line_h * 0.85)), 600)}'
+            f'</hp:p>')
+
+
+def _coerce_table_parts(value):
+    if isinstance(value, list):
+        return value
+    return [{"t": str(value)}]
+
+
+def _make_general_data_table_xml(data_table):
+    header_parts = data_table.get("header_parts")
+    if not header_parts:
+        header_parts = [[{"t": str(h)}] for h in data_table.get("headers", [])]
+    row_parts = data_table.get("row_parts")
+    if not row_parts:
+        row_parts = [
+            [[{"t": str(cell)}] for cell in row]
+            for row in data_table.get("rows", [])
+        ]
+
+    n_cols = max([len(header_parts)] + [len(row) for row in row_parts] + [1])
+    n_rows = 1 + len(row_parts)
+    total_w = 24400
+    if n_cols == 1:
+        col_widths = [total_w]
+    elif n_cols == 2:
+        col_widths = [total_w // 2, total_w - total_w // 2]
+    else:
+        first_w = 4300
+        rest_w = (total_w - first_w) // (n_cols - 1)
+        col_widths = [first_w] + [rest_w] * (n_cols - 2)
+        col_widths.append(total_w - sum(col_widths))
+
+    header_h = 1700
+    row_h = 1600
+    total_h = header_h + row_h * len(row_parts)
+
+    def tc(parts, col, row, w, h, border="4"):
+        p_xml = _parts_to_cell_paragraph(_coerce_table_parts(parts), h)
+        return (f'<hp:tc name="" header="0" hasMargin="0" protect="0" editable="0" dirty="0" borderFillIDRef="{border}">'
+                f'<hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" '
+                f'linkListIDRef="0" linkListNextIDRef="0" textWidth="0" textHeight="0" hasTextRef="0" hasNumRef="0">'
+                f'{p_xml}</hp:subList>'
+                f'<hp:cellAddr colAddr="{col}" rowAddr="{row}"/>'
+                f'<hp:cellSpan colSpan="1" rowSpan="1"/>'
+                f'<hp:cellSz width="{w}" height="{h}"/>'
+                f'<hp:cellMargin left="283" right="283" top="141" bottom="141"/>'
+                f'</hp:tc>')
+
+    rows_xml = []
+    header_cells = ""
+    for col in range(n_cols):
+        parts = header_parts[col] if col < len(header_parts) else []
+        header_cells += tc(parts, col, 0, col_widths[col], header_h)
+    rows_xml.append(f'<hp:tr>{header_cells}</hp:tr>')
+
+    for ri, row in enumerate(row_parts):
+        cells_xml = ""
+        for col in range(n_cols):
+            parts = row[col] if col < len(row) else []
+            cells_xml += tc(parts, col, ri + 1, col_widths[col], row_h)
+        rows_xml.append(f'<hp:tr>{cells_xml}</hp:tr>')
+
+    tbl_id = next_eq_id()
+    zo = next_zorder()
+    return (f'<hp:tbl id="{tbl_id}" zOrder="{zo}" numberingType="TABLE" '
+            f'textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" '
+            f'pageBreak="CELL" repeatHeader="1" rowCnt="{n_rows}" colCnt="{n_cols}" '
+            f'cellSpacing="0" borderFillIDRef="4" noAdjust="0">'
+            f'<hp:sz width="{total_w}" widthRelTo="ABSOLUTE" height="{total_h}" heightRelTo="ABSOLUTE" protect="0"/>'
+            f'<hp:pos treatAsChar="1" affectLSpacing="0" flowWithText="1" allowOverlap="0" '
+            f'holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="PARA" vertAlign="TOP" horzAlign="LEFT" '
+            f'vertOffset="0" horzOffset="0"/>'
+            f'<hp:outMargin left="0" right="0" top="284" bottom="284"/>'
+            f'<hp:inMargin left="140" right="140" top="140" bottom="140"/>'
+            f'{"".join(rows_xml)}</hp:tbl>')
+
+
 def make_data_table_xml(data_table, base_path):
     """Generate data table using pre-extracted templates from 양식지"""
     dt_type = data_table["type"]
@@ -265,6 +360,9 @@ def make_data_table_xml(data_table, base_path):
         tr0 = f'<hp:tr>{"".join(cells[:n_total])}</hp:tr>'
         tr1 = f'<hp:tr>{"".join(cells[n_total:])}</hp:tr>'
         return header_tag + tr0 + tr1 + '</hp:tbl>'
+
+    elif dt_type == "general":
+        return _make_general_data_table_xml(data_table)
 
     return ""
 

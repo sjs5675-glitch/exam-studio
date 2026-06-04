@@ -10,6 +10,24 @@ export type PdfFlip = boolean;
 
 export type AutoCropMode = "fast" | "accurate";
 
+export type CropRegionType =
+  | "problem"
+  | "figure"
+  | "table"
+  | "passage"
+  | "experiment"
+  | "exclude";
+
+export type FigureRegionMode = "original" | "grayscale" | "remove-blue" | "regenerate";
+
+export const CROP_REGION_TYPES: CropRegionType[] = [
+  "problem",
+  "figure",
+  "table",
+  "passage",
+  "exclude",
+];
+
 export interface CropBox {
   id: string;          // uuid (crypto.randomUUID())
   page: number;        // 0-indexed
@@ -19,6 +37,12 @@ export interface CropBox {
   h: number;
   number: number;      // 문제 번호 (1, 2, 3 ...)
   kind?: "regular" | "essay";  // 문제 유형 (미지정 시 "regular"로 해석)
+  regionType?: CropRegionType;
+  ownerNumber?: number;
+  ownerBoxId?: string;
+  label?: string;
+  instruction?: string;
+  figureMode?: FigureRegionMode;
 }
 
 export interface PageMeta {

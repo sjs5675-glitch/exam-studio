@@ -42,11 +42,13 @@ WshShell.Run "cmd /c for /f ""tokens=5"" %a in ('netstat -ano 2^>nul ^| findstr 
 WshShell.Run "cmd /c cd /d """ & studioDir & """ && " & pathPrefix & "call pnpm.cmd dev:sse", 0, False
 WshShell.Run "cmd /c cd /d """ & studioDir & """ && " & pathPrefix & "call pnpm.cmd dev", 0, False
 
-' Next.js 준비 대기 (최대 90초)
+' Next.js + SSE 준비 대기 (최대 90초)
 ready = False
 For i = 1 To 90
     WScript.Sleep 1000
-    If WshShell.Run("cmd /c netstat -ano 2>nul | findstr "":3020"" | findstr ""LISTENING"" >nul 2>nul", 0, True) = 0 Then
+    nextReady = WshShell.Run("cmd /c netstat -ano 2>nul | findstr "":3020"" | findstr ""LISTENING"" >nul 2>nul", 0, True) = 0
+    sseReady = WshShell.Run("cmd /c netstat -ano 2>nul | findstr "":3021 "" | findstr ""LISTENING"" >nul 2>nul", 0, True) = 0
+    If nextReady And sseReady Then
         ready = True
         Exit For
     End If
@@ -54,5 +56,11 @@ Next
 
 ' 업데이트 재시작 시엔 EXAM_STUDIO_NO_OPEN=1 → 브라우저 재오픈 생략(프론트가 같은 탭 새로고침)
 If ready And WshShell.ExpandEnvironmentStrings("%EXAM_STUDIO_NO_OPEN%") <> "1" Then WshShell.Run "http://localhost:3020"
+If Not ready Then
+    MsgBox "Exam Studio 서버 준비가 완료되지 않았습니다." & vbCrLf & vbCrLf & _
+           "3020 화면 서버와 3021 작업 서버가 모두 실행되어야 합니다." & vbCrLf & _
+           "start-logs.bat로 실행해서 로그를 확인해 주세요.", _
+           vbExclamation, "Exam Studio"
+End If
 
 ' 스크립트 종료 — 서버는 백그라운드에서 계속 실행됩니다.

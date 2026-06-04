@@ -37,6 +37,7 @@ PROBLEM_LINE_MAX_UNITS = 26000
 CHOICE_LINE_MAX_UNITS = 25000
 PROBLEM_NUMBER_UNITS = 1900
 TAB_UNITS = 2000
+WORKBOOK_COLUMN_BODY_HEIGHT = 70000
 
 
 def estimate_text_units(text):
@@ -201,6 +202,61 @@ def make_pagebreak():
                          pageBreak="1", vertsize=1000, textheight=1000, baseline=850, spacing=600)
 
 
+def _strip_endnotes(xml):
+    return re.sub(r'<hp:ctrl><hp:endNote\b[\s\S]*?</hp:endNote></hp:ctrl>', '', xml)
+
+
+def _attr_int(attrs, name, default=0):
+    match = re.search(rf'\b{name}="(\d+)"', attrs)
+    return int(match.group(1)) if match else default
+
+
+def _estimate_linesegarrays_height(xml):
+    total = 0
+    for array_xml in re.findall(r'<hp:linesegarray>([\s\S]*?)</hp:linesegarray>', xml):
+        bottom = 0
+        for seg in re.finditer(r'<hp:lineseg\b([^>]*)/>', array_xml):
+            attrs = seg.group(1)
+            vertpos = _attr_int(attrs, "vertpos")
+            vertsize = _attr_int(attrs, "vertsize", 1000)
+            spacing = _attr_int(attrs, "spacing", 600)
+            bottom = max(bottom, vertpos + vertsize + spacing)
+        total += max(bottom, 1600)
+    return total
+
+
+def _estimate_visible_xml_height(xml):
+    visible = _strip_endnotes(xml)
+    if not visible.strip():
+        return 1600
+
+    if any(tag in visible for tag in ("<hp:pic", "<hp:tbl", "<hp:rect")):
+        shape_heights = [
+            int(value)
+            for value in re.findall(r'<hp:(?:sz|curSz)\b[^>]*\bheight="(\d+)"', visible)
+        ]
+        if shape_heights:
+            return max(shape_heights) + 800
+
+    return max(_estimate_linesegarrays_height(visible), 1600)
+
+
+def _estimate_problem_block_height(paragraphs):
+    return sum(_estimate_visible_xml_height(p) for p in paragraphs)
+
+
+_BLANK_EQUATION_RE = re.compile(
+    r'<hp:equation\b(?:(?!</hp:equation>).)*?'
+    r'<hp:script[^>]*>\s*</hp:script>'
+    r'(?:(?!</hp:equation>).)*?</hp:equation>',
+    re.DOTALL,
+)
+
+
+def _sanitize_section_xml(section_xml):
+    return _BLANK_EQUATION_RE.sub("", section_xml)
+
+
 def make_tab3():
     return ('<hp:tab width="4000" leader="0" type="1"/>'
             '<hp:tab width="4000" leader="0" type="1"/>'
@@ -230,9 +286,9 @@ def make_choices_xml(choices, force_compact=False):
     choices = [normalize_parts(choice or []) for choice in choices]
 
     paragraphs = []
-    compact_gap = make_bogi_choice_gap() if force_compact else f'<hp:t>{make_tab3()}</hp:t>'
+    compact_gap = make_bogi_choice_gap()
 
-    if force_compact or is_short_choice(choices):
+    if force_compact:
         # 3+2 pattern with tabs
         # Line 1: ①②③
         line1_content = ""
@@ -294,7 +350,15 @@ def make_choices_xml(choices, force_compact=False):
     return "".join(paragraphs)
 
 
-def make_endnote(number, answer, explanation_parts, prob_type="choice", explanation_table=None, base_path=None):
+def make_endnote(
+    number,
+    answer,
+    explanation_parts,
+    prob_type="choice",
+    explanation_table=None,
+    base_path=None,
+    include_explanation=True,
+):
     """Generate endNote XML"""
     inst_id = _ids.next_inst_id()
 
@@ -315,6 +379,10 @@ def make_endnote(number, answer, explanation_parts, prob_type="choice", explanat
                 f'{answer_run}'
                 f'{make_lineseg(0, 1200, 1200, 1020, 720)}'
                 f'</hp:p>')
+
+    if not include_explanation:
+        explanation_parts = []
+        explanation_table = None
 
     # Split explanation_parts by {"br": true}
     explanation_paragraphs = []
@@ -355,7 +423,7 @@ def make_endnote(number, answer, explanation_parts, prob_type="choice", explanat
                         f'{make_lineseg(0, 1000, 1000, 850, 600)}'
                         f'</hp:p>')
 
-    endnote = (f'<hp:ctrl><hp:endNote number="{number}" suffixChar="46" instId="{inst_id}">'
+    endnote = (f'<hp:ctrl><hp:endNote suffixChar="46" number="{number}" instId="{inst_id}">'
                f'<hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="TOP" '
                f'linkListIDRef="0" linkListNextIDRef="0" textWidth="0" textHeight="0" '
                f'hasTextRef="0" hasNumRef="0">'
@@ -418,6 +486,7 @@ def main(exam_json=None, output_dir=None, base_path=None):
 
     info = exam["info"]
     problems = exam["problems"]
+    include_endnote_explanation = info.get("endnoteMode", "answer_and_explanation") != "answer_only"
 
     # === Load figure_status.json (camelCase finalImage) ===
     final_images = _load_final_images(exam_json)
@@ -464,6 +533,8 @@ def main(exam_json=None, output_dir=None, base_path=None):
     endnote_num = 1
     problem_count = 0
     essay_count = 0
+    column_index = 0
+    column_y = 0
 
     extra_images = []
     extra_image_counter = 9
@@ -481,36 +552,36 @@ def main(exam_json=None, output_dir=None, base_path=None):
         data_table = prob.get("data_table")
         has_figure = prob.get("has_figure", False)
         figure_info = prob.get("figure_info")
-
-        # Determine if we need column/page breaks before this problem
-        if problem_count > 0:
-            if problem_count % 4 == 0:
-                problem_paras.append(make_pagebreak())
-            elif problem_count % 2 == 0:
-                problem_paras.append(make_colbreak())
-
-            if problem_count % 2 == 1:
-                for _ in range(15):
-                    problem_paras.append(make_empty_para())
+        block_paras = []
+        is_choice_problem = ptype == "choice"
 
         # --- Build problem paragraph ---
         if ptype == "essay":
             essay_count += 1
 
         # Generate endNote
-        endnote_xml = make_endnote(endnote_num, answer, explanation, ptype, explanation_table, base_path)
+        endnote_xml = make_endnote(
+            endnote_num,
+            answer,
+            explanation,
+            ptype,
+            explanation_table,
+            base_path,
+            include_endnote_explanation,
+        )
         endnote_num += 1
 
         parts_has_marker = bool(parts) and parts[0].get("t", "").startswith("[서술형")
         prefix = f'<hp:t>[서술형 {essay_count}] </hp:t>' if ptype == "essay" and not parts_has_marker else ""
 
-        problem_paras.extend(make_flow_part_paragraphs(
+        block_paras.extend(make_flow_part_paragraphs(
             parts,
             first_prefix=endnote_xml + prefix,
             first_prefix_units=PROBLEM_NUMBER_UNITS + (estimate_text_units("[essay 00] ") if prefix else 0),
             max_units=PROBLEM_LINE_MAX_UNITS,
         ))
-        problem_paras.append(make_empty_para())
+        if not is_choice_problem:
+            block_paras.append(make_empty_para())
 
         # Figure — figure_status.json에서 finalImage 읽기 (figure_info["final_image"] 참조 폐기)
         img_path = final_images.get(num)
@@ -526,8 +597,9 @@ def main(exam_json=None, output_dir=None, base_path=None):
                          f'<hp:run charPrIDRef="1">{pic_xml}<hp:t/></hp:run>'
                          f'{make_lineseg(0, 1000, 1000, 850, 600)}'
                          f'</hp:p>')
-                problem_paras.append(pic_p)
-                problem_paras.append(make_empty_para())
+                block_paras.append(pic_p)
+                if not is_choice_problem:
+                    block_paras.append(make_empty_para())
 
         # Condition box
         if condition_box:
@@ -562,8 +634,9 @@ def main(exam_json=None, output_dir=None, base_path=None):
                          f'<hp:run charPrIDRef="1">{box_xml}<hp:t/></hp:run>'
                          f'{make_lineseg(0, 1000, 1000, 850, 600)}'
                          f'</hp:p>')
-                problem_paras.append(box_p)
-                problem_paras.append(make_empty_para())
+                block_paras.append(box_p)
+                if not is_choice_problem:
+                    block_paras.append(make_empty_para())
 
         # Data table
         if data_table:
@@ -577,21 +650,22 @@ def main(exam_json=None, output_dir=None, base_path=None):
                     paraPrIDRef="3", charPrIDRef="1",
                     vertsize=1000, textheight=1000, baseline=850, spacing=600
                 )
-                problem_paras.append(label_p)
+                block_paras.append(label_p)
 
             tbl_xml = make_data_table_xml(data_table, base_path)
             tbl_p = (f'<hp:p id="2147483648" paraPrIDRef="3" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">'
                      f'<hp:run charPrIDRef="1">{tbl_xml}<hp:t/></hp:run>'
                      f'{make_lineseg(0, 1000, 1000, 850, 600)}'
                      f'</hp:p>')
-            problem_paras.append(tbl_p)
-            problem_paras.append(make_empty_para())
+            block_paras.append(tbl_p)
+            if not is_choice_problem:
+                block_paras.append(make_empty_para())
 
         # Choices
         if ptype == "choice" and choices:
             force_compact_choices = bool(condition_box and condition_box.get("type") == "bogi")
             choices_xml = make_choices_xml(choices, force_compact=force_compact_choices)
-            problem_paras.append(choices_xml)
+            block_paras.append(choices_xml)
 
         # Meta tags
         if info.get("showProblemMetadata", True):
@@ -601,7 +675,7 @@ def main(exam_json=None, output_dir=None, base_path=None):
                 charPrIDRef="2",
                 vertsize=1000, textheight=1000, baseline=850, spacing=600
             )
-            problem_paras.append(meta_topic)
+            block_paras.append(meta_topic)
 
             difficulty = prob.get("difficulty", "중")
             meta_diff = make_paragraph(
@@ -609,17 +683,29 @@ def main(exam_json=None, output_dir=None, base_path=None):
                 charPrIDRef="2",
                 vertsize=1000, textheight=1000, baseline=850, spacing=600
             )
-            problem_paras.append(meta_diff)
+            block_paras.append(meta_diff)
 
+        block_height = _estimate_problem_block_height(block_paras)
+        if problem_count > 0 and column_y + block_height > WORKBOOK_COLUMN_BODY_HEIGHT:
+            if column_index == 0:
+                problem_paras.append(make_colbreak())
+                column_index = 1
+            else:
+                problem_paras.append(make_pagebreak())
+                column_index = 0
+            column_y = 0
+
+        problem_paras.extend(block_paras)
+        column_y += block_height
         problem_count += 1
 
-    # Final breaks after last problem
-    problem_paras.append(make_colbreak())
+    # Final break before generated endnote pages.
     problem_paras.append(make_pagebreak())
 
     # === Assemble section0.xml ===
     root_open = ('<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>')
     section_xml = root_open + header_xml + "".join(problem_paras) + "</hs:sec>"
+    section_xml = _sanitize_section_xml(section_xml)
 
     # === Build content.hpf ===
     with open(os.path.join(base_path, "content_hpf_template.xml"), "r", encoding="utf-8") as f:

@@ -278,6 +278,55 @@ describe("determineStartStage", () => {
     expect(result.startStage).toBe("builder");
   });
 
+  it("auto-detects figure when figure_status misses a required figure question", async () => {
+    await mkdir(cache.paths.cacheDir, { recursive: true });
+    await writeFile(
+      cache.extractorResultPath(1),
+      JSON.stringify({
+        number: 1,
+        has_figure: true,
+        figure_info: { description_en: "cell diagram" },
+      }),
+      "utf8"
+    );
+    await writeFile(cache.solverResultPath(1), JSON.stringify({ answer: "1" }), "utf8");
+    await writeFile(cache.verifierResultPath(1), JSON.stringify({ status: "pass" }), "utf8");
+    await writeFile(cache.paths.figureStatus, JSON.stringify({ status: "partial", questions: {} }), "utf8");
+
+    const result = await determineStartStage("auto", cache, [1]);
+    expect(result.startStage).toBe("figure");
+  });
+
+  it("auto-detects builder when every required figure has status and output", async () => {
+    await mkdir(cache.paths.cacheDir, { recursive: true });
+    const outputDir = path.join(tmpDir, "outputs", "images");
+    await mkdir(outputDir, { recursive: true });
+    const figurePath = path.join(outputDir, "prob1_final.png");
+    await writeFile(figurePath, "png", "utf8");
+    await writeFile(
+      cache.extractorResultPath(1),
+      JSON.stringify({
+        number: 1,
+        has_figure: true,
+        figure_info: { description_en: "cell diagram" },
+      }),
+      "utf8"
+    );
+    await writeFile(cache.solverResultPath(1), JSON.stringify({ answer: "1" }), "utf8");
+    await writeFile(cache.verifierResultPath(1), JSON.stringify({ status: "pass" }), "utf8");
+    await writeFile(
+      cache.paths.figureStatus,
+      JSON.stringify({
+        status: "partial",
+        questions: { "1": { status: "boundary_uncertain", finalImage: figurePath } },
+      }),
+      "utf8"
+    );
+
+    const result = await determineStartStage("auto", cache, [1]);
+    expect(result.startStage).toBe("builder");
+  });
+
   it("auto-detects checker when build output HWPX exists on disk", async () => {
     await mkdir(cache.paths.cacheDir, { recursive: true });
     await writeFile(cache.extractorResultPath(1), JSON.stringify({ ok: true }), "utf8");

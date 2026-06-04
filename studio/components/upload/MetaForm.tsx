@@ -221,7 +221,7 @@ export function MetaForm({ value, onChange, disabled }: MetaFormProps) {
         <div>
           <label className="text-xs text-muted-foreground">그림</label>
           <select
-            value={value.figureMode ?? "original"}
+            value={value.figureMode ?? "auto"}
             onChange={(e) => onChange({ ...value, figureMode: e.target.value as FigureMode })}
             disabled={disabled}
             className={fieldClass}

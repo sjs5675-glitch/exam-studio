@@ -6,6 +6,7 @@ import path from "path";
 import crypto from "crypto";
 import { normalizePdfRotation } from "@/lib/cropper/coords";
 import { getDataRoot } from "@/lib/server/paths";
+import { resolvePythonCommand } from "@/lib/server/python";
 
 const execFileAsync = promisify(execFile);
 const BASE_DIR = getDataRoot();
@@ -76,7 +77,7 @@ print(json.dumps({"width": pix.width, "height": pix.height, "pages": len(doc)}))
       out: cachePath,
     });
 
-    const pythonCmd = process.platform === "win32" ? "python" : "python3";
+    const pythonCmd = resolvePythonCommand({ baseDir: BASE_DIR });
     let stdout = "";
     try {
       const result = await execFileAsync(pythonCmd, ["-c", script, args], {
