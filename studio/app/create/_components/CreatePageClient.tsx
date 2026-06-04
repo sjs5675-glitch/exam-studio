@@ -55,6 +55,7 @@ import {
   loadStoredAutoSplitProvider,
   loadStoredMeta,
   preloadQuestionResultsFromCache,
+  sanitizeCreateMeta,
   type BuildStatus,
   type ExistingImages,
 } from "../_lib/createPageState";
@@ -1243,8 +1244,9 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
       setSubmitError(null);
       setRecoveryHint(null);
 
+      const createMeta = sanitizeCreateMeta(meta);
       const formData = new FormData();
-      formData.append("meta", JSON.stringify(meta));
+      formData.append("meta", JSON.stringify(createMeta));
       let rIdx = 0;
       let eIdx = 0;
       for (const item of items) {
@@ -1283,7 +1285,7 @@ export default function CreateV4Page({ currentYear }: CreateV4PageProps) {
       }
 
       // v3Meta를 store에 설정 (startJob 전)
-      const jobMeta = { ...meta, questionCount: saved.length };
+      const jobMeta = { ...createMeta, questionCount: saved.length, resumeFrom: "extractor" };
       setV3Meta(jobMeta);
 
       try {

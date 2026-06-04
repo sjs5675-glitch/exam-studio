@@ -52,6 +52,13 @@ export function createYearOptions(currentYear: number): number[] {
   return Array.from({ length: 6 }, (_, i) => currentYear - i);
 }
 
+export function sanitizeCreateMeta(meta: MetaValue): MetaValue {
+  const clean = { ...(meta as MetaValue & { resumeFrom?: unknown; questionCount?: unknown }) };
+  delete clean.resumeFrom;
+  delete clean.questionCount;
+  return clean as MetaValue;
+}
+
 export const PROVIDER_LABEL: Record<AIProviderId, string> = {
   auto: "auto",
   "claude-cli": "Claude CLI",
@@ -102,7 +109,7 @@ export function loadStoredMeta(defaultMeta: MetaValue): MetaValue {
   if (typeof window === "undefined") return defaultMeta;
   try {
     const raw = sessionStorage.getItem(META_LS_KEY);
-    return raw ? { ...defaultMeta, ...JSON.parse(raw) } : defaultMeta;
+    return raw ? sanitizeCreateMeta({ ...defaultMeta, ...JSON.parse(raw) }) : defaultMeta;
   } catch {
     return defaultMeta;
   }

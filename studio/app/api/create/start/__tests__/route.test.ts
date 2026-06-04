@@ -142,7 +142,9 @@ async function buildHandler(
       if (typeof metaStr !== "string") {
         return NextResponse.json({ error: "meta(JSON) 필드 필요" }, { status: 400 });
       }
-      meta = JSON.parse(metaStr) as Record<string, unknown>;
+      meta = { ...(JSON.parse(metaStr) as Record<string, unknown>) };
+      delete meta.resumeFrom;
+      delete meta.questionCount;
       for (const [key, value] of formData.entries()) {
         if (key === "meta") continue;
         if (!(value instanceof File)) continue;
@@ -400,6 +402,29 @@ describe("POST /api/create/start", () => {
     expect(body.images[0].kind).toBe("essay");
     const imgFiles = await readdir(IMAGES_DIR);
     expect(imgFiles).toContain("q_s01.png");
+  });
+
+  it("strips runtime resume fields from fresh create metadata", async () => {
+    const { POST, CACHE_DIR } = await buildHandler(examDir, outputsImagesDir);
+    const meta = {
+      school: "runtime leak test",
+      year: 2026,
+      resumeFrom: "confirm",
+      questionCount: 99,
+    };
+    const req = makeRequest(meta, [
+      { key: "q01", name: "q01.png", data: pngBuffer() },
+    ]);
+
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+
+    const savedMeta = JSON.parse(
+      await import("fs/promises").then((fs) => fs.readFile(path.join(CACHE_DIR, "session_meta.json"), "utf-8"))
+    ) as Record<string, unknown>;
+    expect(savedMeta.school).toBe("runtime leak test");
+    expect(savedMeta.resumeFrom).toBeUndefined();
+    expect(savedMeta.questionCount).toBeUndefined();
   });
 
   it("meta 필드 없음 → 400", async () => {

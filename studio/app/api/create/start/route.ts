@@ -80,6 +80,13 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+function sanitizeCreateStartMeta(meta: ExamMetaInput): ExamMetaInput {
+  const clean = { ...(meta as ExamMetaInput & { resumeFrom?: unknown; questionCount?: unknown }) };
+  delete clean.resumeFrom;
+  delete clean.questionCount;
+  return clean;
+}
+
 const BUSY_HINT =
   "이전 손글씨 제거/이미지 생성 작업이 question_images 폴더를 아직 사용 중입니다. 현재 작업이 끝나거나 중단된 뒤 다시 시도하세요. 교사용 문제집은 이미지 정리(손글씨 제거)를 끄고 진행하는 것을 권장합니다.";
 
@@ -109,7 +116,7 @@ export async function POST(req: NextRequest) {
     if (typeof metaStr !== "string") {
       return NextResponse.json({ error: "meta(JSON) 필드 필요" }, { status: 400 });
     }
-    meta = JSON.parse(metaStr) as ExamMetaInput;
+    meta = sanitizeCreateStartMeta(JSON.parse(metaStr) as ExamMetaInput);
 
     // 선택적 provider 필드 — 없으면 "auto" 기본값
     const rawProvider = formData.get("provider");
